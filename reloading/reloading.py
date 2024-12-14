@@ -259,5 +259,6 @@ def _reloading_function(fn, every=1):
                 handle_exception(fpath)
                 state["func"] = get_reloaded_function(caller_globals, caller_locals, fpath, fn) or state["func"]
 
+    wrapped.__signature__ = inspect.signature(fn)
     caller_locals[fn.__name__] = wrapped
     return wrapped
