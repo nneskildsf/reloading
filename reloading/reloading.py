@@ -191,7 +191,7 @@ def get_decorator_name_or_none(dec_node):
 
 def strip_reloading_decorator(func):
     """Remove the 'reloading' decorator and all decorators before it"""
-    decorator_names = [get_decorator_name(dec) for dec in func.decorator_list]
+    decorator_names = [get_decorator_name_or_none(dec) for dec in func.decorator_list]
     reloading_idx = decorator_names.index("reloading")
     func.decorator_list = func.decorator_list[reloading_idx + 1:]
 
