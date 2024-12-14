@@ -200,7 +200,15 @@ class TestReloading(unittest.TestCase):
                 bin=bin,
             )
             self.assertTrue("3" in stdout and "1" in stdout)
-
+    
+    def test_function_signature_is_preserved(self):
+        import inspect
+        @reloading
+        def some_func(a, b, c):
+            return "result"
+        
+        self.assertTrue(str(inspect.signature(some_func)) == "(a, b, c)")
+    
     def test_changing_source_function(self):
         for bin in ["python", "python3"]:
             stdout, _ = run_and_update_source(
