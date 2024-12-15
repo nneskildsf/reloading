@@ -32,6 +32,7 @@ Repository = "https://github.com/julvo/reloading"
 
 [project.optional-dependencies]
 development = [
-    "flake8",
-    "build",
+  "flake8",
+  "pyright",
+  "build",
 ]
