@@ -1,0 +1,40 @@
+name: Python application
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.4", "3.5", "3.6", "3.7", "3.8", "3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip
+      - name: Install relaoding (as editable)
+        run: pip install -e ".[development]"
+      - name: Lint with flake8. Stop if syntax errors or undefined variables.
+        run: |
+          cd reloading
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      - name: Lint with flake8. Get warnings.
+        run: |
+          cd reloading
+          if ! flake8 . --count --statistics; then
+            echo "::warning::Flake8 Lint Warning"
+          fi
+      - name: Type check with pyright
+        run: pyright
+      - name: Test with unittest
+        run: |
+          cd reloading
+          python -m unittest
