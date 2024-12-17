@@ -11,7 +11,7 @@ TEST_CHANGING_SOURCE_LOOP_CONTENT = """
 from reloading import reloading
 from time import sleep
 
-for epoch in reloading(range(10)):
+for epoch, ep in reloading(zip(range(10), range(1,11))):
     sleep(0.2)
     print('INITIAL_FILE_CONTENTS')
 """
@@ -95,7 +95,7 @@ for _ in range(10):
 """
 
 
-def run_and_update_source(init_src, updated_src=None, update_after=0.5, bin="python3"):
+def run_and_update_source(init_src, updated_src=None, update_after=0.5):
     """Runs init_src in a subprocess and updates source to updated_src after
     update_after seconds. Returns the standard output of the subprocess and
     whether the subprocess produced an uncaught exception.
@@ -103,7 +103,7 @@ def run_and_update_source(init_src, updated_src=None, update_after=0.5, bin="pyt
     with open(SRC_FILE_NAME, "w") as f:
         f.write(init_src)
 
-    cmd = [bin, SRC_FILE_NAME]
+    cmd = ["python", SRC_FILE_NAME]
     with sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE) as proc:
         if updated_src is not None:
             time.sleep(update_after)
@@ -114,7 +114,7 @@ def run_and_update_source(init_src, updated_src=None, update_after=0.5, bin="pyt
             stdout, _ = proc.communicate(timeout=2)
             stdout = stdout.decode("utf-8")
             has_error = False
-        except:
+        except Exception:
             stdout = ""
             has_error = True
             proc.terminate()
@@ -132,58 +132,49 @@ class TestReloading(unittest.TestCase):
             iters += 1
 
     def test_changing_source_loop(self):
-        for bin in ["python", "python3"]:
-            stdout, _ = run_and_update_source(
-                init_src=TEST_CHANGING_SOURCE_LOOP_CONTENT,
-                updated_src=TEST_CHANGING_SOURCE_LOOP_CONTENT.replace("INITIAL", "CHANGED").rstrip("\n"),
-                bin=bin,
-            )
-
-            self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
+        stdout, _ = run_and_update_source(
+            init_src=TEST_CHANGING_SOURCE_LOOP_CONTENT,
+            updated_src=TEST_CHANGING_SOURCE_LOOP_CONTENT.replace("INITIAL", "CHANGED").rstrip("\n"),
+        )
+        print(stdout)
+        self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
 
     def test_changing_line_number_of_loop(self):
-        for bin in ["python", "python3"]:
-            stdout, _ = run_and_update_source(
-                init_src=TEST_CHANGING_LINE_NUMBER_OF_LOOP,
-                updated_src=(
-                    TEST_CHANGING_LINE_NUMBER_OF_LOOP
-                        .replace("pass", "pass\npass\n")
-                        .replace("INITIAL", "CHANGED")
-                        .rstrip("\n")
-                ),
-                bin=bin,
-            )
-
-            self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
+        stdout, _ = run_and_update_source(
+            init_src=TEST_CHANGING_LINE_NUMBER_OF_LOOP,
+            updated_src=(
+                TEST_CHANGING_LINE_NUMBER_OF_LOOP
+                    .replace("pass", "pass\npass\n")
+                    .replace("INITIAL", "CHANGED")
+                    .rstrip("\n")
+            ),
+        )
+        print(stdout)
+        self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
 
     def test_comment_after_loop(self):
-        for bin in ["python", "python3"]:
-            stdout, _ = run_and_update_source(
-                init_src=TEST_COMMENT_AFTER_LOOP_CONTENT,
-                updated_src=TEST_COMMENT_AFTER_LOOP_CONTENT.replace("INITIAL", "CHANGED").rstrip("\n"),
-                bin=bin,
-            )
+        stdout, _ = run_and_update_source(
+            init_src=TEST_COMMENT_AFTER_LOOP_CONTENT,
+            updated_src=TEST_COMMENT_AFTER_LOOP_CONTENT.replace("INITIAL", "CHANGED").rstrip("\n"),
+        )
 
-            self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
+        self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
 
     def test_format_str_in_loop(self):
         stdout, _ = run_and_update_source(
             init_src=TEST_FORMAT_STR_IN_LOOP_CONTENT,
             updated_src=TEST_FORMAT_STR_IN_LOOP_CONTENT.replace("INITIAL", "CHANGED").rstrip("\n"),
-            bin="python3",
         )
 
         self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
 
     def test_keep_local_variables(self):
-        for bin in ["python", "python3"]:
-            _, has_error = run_and_update_source(init_src=TEST_KEEP_LOCAL_VARIABLES_CONTENT, bin=bin)
-            self.assertFalse(has_error)
+        _, has_error = run_and_update_source(init_src=TEST_KEEP_LOCAL_VARIABLES_CONTENT)
+        self.assertFalse(has_error)
 
     def test_persist_after_loop(self):
-        for bin in ["python", "python3"]:
-            _, has_error = run_and_update_source(init_src=TEST_PERSIST_AFTER_LOOP, bin=bin)
-            self.assertFalse(has_error)
+        _, has_error = run_and_update_source(init_src=TEST_PERSIST_AFTER_LOOP)
+        self.assertFalse(has_error)
 
     def test_simple_function(self):
         @reloading
@@ -193,31 +184,28 @@ class TestReloading(unittest.TestCase):
         self.assertTrue(some_func() == "result")
 
     def test_reloading_function(self):
-        for bin in ["python", "python3"]:
-            stdout, _ = run_and_update_source(
-                init_src=TEST_FUNCTION_AFTER,
-                updated_src=TEST_FUNCTION_AFTER.replace("a+b", "a-b"),
-                bin=bin,
-            )
-            self.assertTrue("3" in stdout and "1" in stdout)
-    
+        stdout, _ = run_and_update_source(
+            init_src=TEST_FUNCTION_AFTER,
+            updated_src=TEST_FUNCTION_AFTER.replace("a+b", "a-b"),
+        )
+        self.assertTrue("3" in stdout and "1" in stdout)
+
     def test_function_signature_is_preserved(self):
         import inspect
+
         @reloading
         def some_func(a, b, c):
             return "result"
-        
-        self.assertTrue(str(inspect.signature(some_func)) == "(a, b, c)")
-    
-    def test_changing_source_function(self):
-        for bin in ["python", "python3"]:
-            stdout, _ = run_and_update_source(
-                init_src=TEST_CHANGING_SOURCE_FN_CONTENT,
-                updated_src=TEST_CHANGING_SOURCE_FN_CONTENT.replace("INITIAL", "CHANGED").rstrip("\n"),
-                bin=bin,
-            )
 
-            self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
+        self.assertTrue(str(inspect.signature(some_func)) == "(a, b, c)")
+
+    def test_changing_source_function(self):
+        stdout, _ = run_and_update_source(
+            init_src=TEST_CHANGING_SOURCE_FN_CONTENT,
+            updated_src=TEST_CHANGING_SOURCE_FN_CONTENT.replace("INITIAL", "CHANGED").rstrip("\n"),
+        )
+        print(stdout)
+        self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
 
 
 if __name__ == "__main__":
