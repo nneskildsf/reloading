@@ -5,13 +5,13 @@ build-backend = "flit_core.buildapi"
 [project]
 name = "reloading"
 dependencies = []
-requires-python = ">=3.4"
+requires-python = ">=3.8"
 authors = [{name = "Julian Vossen", email = "pypi@julianvossen.de"}]
 maintainers = [{name = "Eskild Schroll-Fleischer", email = "eyfl@novonordisk.com"}]
-version="1.1.2"
+version="1.2.0"
 license = {file = "LICENSE.txt"}
 readme = "README.md"
-description = "Reloads source code of a running program without losing state"
+description = "Reloads source code of a running program without losing state."
 keywords = ["reload", "reloading", "refresh", "loop", "decorator"]
 classifiers=[
   "Development Status :: 3 - Alpha",
@@ -19,20 +19,27 @@ classifiers=[
   "Topic :: Utilities",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.4",
-  "Programming Language :: Python :: 3.5",
-  "Programming Language :: Python :: 3.6",
-  "Programming Language :: Python :: 3.7",
   "Programming Language :: Python :: 3.8",
   "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
 ]
 
 [project.urls]
-Repository = "https://github.com/julvo/reloading"
+Repository = "https://github.com/eskildsf/reloading"
 
 [project.optional-dependencies]
 development = [
   "flake8",
   "pyright",
   "build",
+]
+
+[tool.pyright]
+include = ["reloading"]
+exclude = [
+  "**/__pycache__",
+  "examples",
 ]

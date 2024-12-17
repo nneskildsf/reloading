@@ -41,22 +41,9 @@ def some_function():
 
 ## Additional Options
 
-Pass the keyword argument `every` to reload only on every n-th invocation or iteration. E.g.
+Pass `None` instead of an iterable to create an endless reloading loop, e.g. 
 ```python
-for i in reloading(range(1000), every=10):
-    # this code will only be reloaded before every 10th iteration
-    # this can help to speed-up tight loops
-    pass
-
-@reloading(every=10)
-def some_function():
-    # this code with only be reloaded before every 10th invocation
-    pass
-```
-
-Pass `forever=True` instead of an iterable to create an endless reloading loop, e.g. 
-```python
-for i in reloading(forever=True):
+for i in reloading():
     # this code will loop forever and reload from source before each iteration
     pass
 ```
@@ -148,9 +135,10 @@ for epoch in reloading(range(NB_EPOCHS)):
 ```
 [Here](https://github.com/julvo/reloading/blob/master/examples/tensorflow/train.py) is a full TensorFlow example.
 
-## Testing
+## Type Check and Testing
 
-Make sure you have `python` and `python3` available in your path, then run:
+Run:
 ```
-$ python3 reloading/test_reloading.py
+$ pyright
+$ python reloading/test_reloading.py
 ```
