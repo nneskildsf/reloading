@@ -3,25 +3,35 @@ import sys
 import ast
 import traceback
 import types
+from typing import Optional, Union, Callable, Iterable, Dict, Any, overload
 from itertools import chain
 from functools import partial, update_wrapper
-
+from copy import deepcopy
 
 class NoIterPartial(partial):
     """
-    have to make our own partial in case someone wants to use reloading as a iterator without any arguments
-    they would get a partial back because a call without a iterator argument is assumed to be a decorator.
-    getting a "TypeError: 'functools.partial' object is not iterable"
-    which is not really descriptive.
-    hence we overwrite the iter to make sure that the error makes sense.
+    Make our own partial in case someone wants to use reloading as an
+    iterator. Without any arguments they would get a partial back
+    because a call without an iterator argument is assumed to be a decorator.
+    Getting a "TypeError: 'functools.partial' object is not iterable"
+    is not really descriptive.
+    Hence we overwrite the iter to make sure that the error makes sense.
     """
     def __iter__(self):
         raise TypeError(
             "Nothing to iterate over. Please pass an iterable to reloading."
         )
 
+@overload
+def reloading(fn_or_seq: Iterable) -> Iterable: ...
 
-def reloading(fn_or_seq=None, every=1, forever=None):
+@overload
+def reloading(fn_or_seq: None) -> Iterable: ...
+
+@overload
+def reloading(fn_or_seq: Callable) -> Callable: ...
+
+def reloading(fn_or_seq: Optional[Union[Iterable, Callable]] = None) -> Union[Iterable, Callable]:
     """
     Wraps a loop iterator or decorates a function to reload the source code
     before every loop iteration or function invocation.
@@ -32,50 +42,48 @@ def reloading(fn_or_seq=None, every=1, forever=None):
     When used as a function decorator, the decorated function is reloaded from
     source before each execution.
 
-    Pass the integer keyword argument `every` to reload the source code
-    only every n-th iteration/invocation.
-
     Args:
         fn_or_seq (function | iterable): A function or loop iterator which should
             be reloaded from source before each invocation or iteration,
-            respectively
-        every (int, Optional): After how many iterations/invocations to reload
-        forever (bool, Optional): Pass `forever=true` instead of an iterator to
-            create an endless loop
+            respectively.
     """
-    if forever and fn_or_seq is not None:
-        raise ValueError(
-            "Cannot use `forever=True` and pass an iterator at the same time"
-        )
-    if forever:
-        return _reloading_loop(iter(int, 1), every=every)
-
     if fn_or_seq:
-        if isinstance(fn_or_seq, types.FunctionType):
-            return _reloading_function(fn_or_seq, every=every)
-        if hasattr(fn_or_seq, "__iter__"):
-            return _reloading_loop(fn_or_seq, every=every)
-        raise TypeError(
-            f"{reloading.__name__} expected function or iterable, got {type(fn_or_seq)}"
-        )
+        if isinstance(fn_or_seq, Callable):
+            return _reloading_function(fn_or_seq)
+        elif isinstance(fn_or_seq, Iterable):
+            return _reloading_loop(fn_or_seq)
+        else:
+            raise TypeError(
+                f"{reloading.__name__} expected function or iterable, got {type(fn_or_seq)}"
+            )
+    else:
+        return _reloading_loop(iter(int, 1))
     # return this function with the keyword arguments partialed in,
     # so that the return value can be used as a decorator
-    decorator = update_wrapper(NoIterPartial(reloading, every=every), reloading)
+    decorator = update_wrapper(NoIterPartial(reloading), reloading)
     return decorator
 
 
-def unique_name(used):
+def unique_name(seq: chain) -> str:
     """
-    Get the longest element of the used names and append a "0"
+    Function to generate string which is unique
+    relative to the supplied sequence
     """
-    return max(used, key=len) + "0"
+    return max(seq, key=len) + "0"
 
 
-def format_itervars(ast_node):
+def format_iteration_variables(ast_node: Union[ast.Name, ast.Tuple, ast.List]) -> str:
     """
-    Formats an `ast_node` of loop iteration variables as string, e.g. 'a, b'
+    Formats an `ast_node` of loop iteration variables as string.
     """
-    # handle the case that there only is a single loop var
+    # ast.Name corresponds to cases where the iterator returns
+    # a single element.
+    # Example:
+    # for i in range(10):
+    #   pass
+    # ast.Tuple/ast.List corresponds to multiple elements:
+    # for i, j in zip(range(10), range(10)):
+    #   pass
     if isinstance(ast_node, ast.Name):
         return ast_node.id
 
@@ -84,50 +92,53 @@ def format_itervars(ast_node):
         if isinstance(child, ast.Name):
             names.append(child.id)
         elif isinstance(child, ast.Tuple) or isinstance(child, ast.List):
-            # if its another tuple, like "a, (b, c)", recurse
-            names.append("({})".format(format_itervars(child)))
+            # Recursion to handle additional tuples such as "a, (b, c)"
+            names.append("("+format_iteration_variables(child)+")")
 
     return ", ".join(names)
 
 
-def load_file(path):
-    src = ""
-    # while loop here since while saving, the file may sometimes be empty.
-    while src == "":
-        with open(path, "r") as f:
+def load_file(filepath: str) -> str:
+    """
+    Read contents of file containing reloading code.
+    Handle case of file appearing empty on read.
+    """
+    while True:
+        with open(filepath, "r") as f:
             src = f.read()
-    return src + "\n"
+        if len(src):
+            return src + "\n"
 
 
-def parse_file_until_successful(path):
-    source = load_file(path)
+def parse_file_until_successful(filepath: str) -> ast.Module:
+    """
+    Parse source code of file containing reloading code.
+    File may appear incomplete as as it is read so retry until successful.
+    """
+    source = load_file(filepath)
     while True:
         try:
             tree = ast.parse(source)
             return tree
         except SyntaxError:
-            handle_exception(path)
-            source = load_file(path)
+            handle_exception(filepath)
+            source = load_file(filepath)
 
 
-def isolate_loop_body_and_get_itervars(tree, lineno, loop_id):
+def isolate_loop_body_and_get_iteration_variables(reloaded_file_ast: ast.Module,
+                                                  lineno: int,
+                                                  loop_id: Union[None, str]) -> tuple[ast.Module, ast.Name, str]:
     """
-    Modifies tree inplace as unclear how to create ast.Module.
-    Returns itervars
+    Traverse AST for the entire reloaded file in a search for the
+    loop which is reloaded.
     """
     candidate_nodes = []
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.For)
-            and isinstance(node.iter, ast.Call)
-            and node.iter.func.id == "reloading"
-            and (
+    for node in ast.walk(reloaded_file_ast):
+        if isinstance(node, ast.For) and isinstance(node.iter, ast.Call):
+            if getattr(node.iter.func, "id") == "reloading" and (
                 (loop_id is not None and loop_id == get_loop_id(node))
-                or getattr(node, "lineno", None) == lineno
-            )
-        ):
-            candidate_nodes.append(node)
-
+                or getattr(node, "lineno", None) == lineno):
+                candidate_nodes.append(node)
     if len(candidate_nodes) > 1:
         raise LookupError(
             "The reloading loop is ambigious. Use `reloading` only once per line and make sure that the code in that line is unique within the source file."
@@ -139,42 +150,47 @@ def isolate_loop_body_and_get_itervars(tree, lineno, loop_id):
         )
 
     loop_node = candidate_nodes[0]
-    tree.body = loop_node.body
-    return loop_node.target, get_loop_id(loop_node)
+    for_loop_ast = deepcopy(reloaded_file_ast) # Use reloaded_file_ast as template.
+    for_loop_ast.body = loop_node.body
+    return for_loop_ast, loop_node.target, get_loop_id(loop_node)
 
 
-def get_loop_id(ast_node):
+def get_loop_id(ast_node: ast.For) -> str:
     """
-    Generates a unique identifier for an `ast_node` of type ast.For to find the loop in the changed source file
+    Generates a unique identifier for an `ast_node`.
+    Used to identify the loop in the changed source file.
     """
     return ast.dump(ast_node.target) + "__" + ast.dump(ast_node.iter)
 
 
-def get_loop_code(loop_frame_info, loop_id):
-    fpath = loop_frame_info[1]
+def get_loop_code(loop_frame_info: inspect.FrameInfo, loop_id: Union[None, str]) -> tuple[ast.Module, str, str]: # Return code object
+    filepath: str = loop_frame_info.filename
     while True:
-        tree = parse_file_until_successful(fpath)
+        reloaded_file_ast: ast.Module = parse_file_until_successful(filepath)
         try:
-            itervars, found_loop_id = isolate_loop_body_and_get_itervars(
-                tree, lineno=loop_frame_info[2], loop_id=loop_id
+            for_loop_ast, iteration_variables, found_loop_id = isolate_loop_body_and_get_iteration_variables(
+                reloaded_file_ast, lineno=loop_frame_info.lineno, loop_id=loop_id
             )
             return (
-                compile(tree, filename="", mode="exec"),
-                format_itervars(itervars),
+                for_loop_ast,
+                format_iteration_variables(iteration_variables),
                 found_loop_id,
             )
         except LookupError:
-            handle_exception(fpath)
+            handle_exception(filepath)
 
 
-def handle_exception(fpath):
-    exc = traceback.format_exc()
-    exc = exc.replace('File "<string>"', f'File "{fpath}"')
-    sys.stderr.write(exc + "\n")
+def handle_exception(filepath: str):
+    """
+    Output helpful error message to user regarding exception in reloaded code.
+    """
+    exception = traceback.format_exc()
+    exception = exception.replace('File "<string>"', f'File "{filepath}"')
+    sys.stderr.write(exception + "\n")
 
     if sys.stdin.isatty():
         print(
-            f"An error occurred. Please edit the file '{fpath}' to fix the issue and press return to continue or Ctrl+C to exit."
+            f"An error occurred. Please edit the file '{filepath}' to fix the issue and press return to continue or Ctrl+C to exit."
         )
         try:
             sys.stdin.readline()
@@ -183,133 +199,174 @@ def handle_exception(fpath):
             sys.exit(1)
     else:
         # get error line number
-        line_number = int(exc.split(", line ")[-1].split(",")[0])
+        line_number = int(exception.split(", line ")[-1].split(",")[0])
         print(line_number)
         raise Exception(
-            f"An error occurred. Please fix the issue in the file '{fpath}' and run the script again."
+            f"An error occurred. Please fix the issue in the file '{filepath}' and run the script again."
         )
 
 
-def _reloading_loop(seq, every=1):
-    loop_frame_info = inspect.stack()[2]
-    fpath = loop_frame_info[1]
+def _reloading_loop(seq: Iterable) -> Iterable:
+    stack: list[inspect.FrameInfo] = inspect.stack()
+    # The first element on the stack is the caller of inspect.stack() i.e. _reloading_loop
+    assert stack[0].function == '_reloading_loop'
+    # The second element is the caller of the first, i.e. reloading
+    assert stack[1].function == 'reloading'
+    # The third element is the loop which called reloading.
+    loop_frame_info: inspect.FrameInfo = stack[2]
+    filepath: str = loop_frame_info.filename
 
-    caller_globals = loop_frame_info[0].f_globals
-    caller_locals = loop_frame_info[0].f_locals
+    caller_globals: Dict[str, Any] = loop_frame_info.frame.f_globals
+    caller_locals: Dict[str, Any] = loop_frame_info.frame.f_locals
 
-    unique = unique_name(chain(caller_locals.keys(), caller_globals.keys()))
+    # Make up a name for a variable which is not already present in the global
+    # or local namespace.
+    vacant_variable_name: str = unique_name(chain(caller_locals.keys(),
+                                                  caller_globals.keys()))
     loop_id = None
 
-    for i, itervar_values in enumerate(seq):
-        if i % every == 0:
-            compiled_body, itervars, loop_id = get_loop_code(
-                loop_frame_info, loop_id=loop_id
-            )
-
-        caller_locals[unique] = itervar_values
-        exec(itervars + " = " + unique, caller_globals, caller_locals)
-        print(itervars)
+    for_loop_ast, iteration_variables, loop_id = get_loop_code(
+        loop_frame_info, loop_id=loop_id
+    )
+    for i, iteration_variable_values in enumerate(seq):
+        # Reload code
+        for_loop_ast, iteration_variables, loop_id = get_loop_code(
+            loop_frame_info, loop_id=loop_id
+        )
+        # Store iteration variable values in vacant variable in local scope
+        caller_locals[vacant_variable_name] = iteration_variable_values
+        # Reassign variable values from vacant variable in local scope
+        exec(iteration_variables + " = " + vacant_variable_name, caller_globals, caller_locals)
         try:
-            # run main loop body
-            # print(f"{caller_locals.keys()}")
+            # Run loop body
+            compiled_body = compile(for_loop_ast, filename="", mode="exec")
             exec(compiled_body, caller_globals, caller_locals)
         except Exception:
-            handle_exception(fpath)
+            handle_exception(filepath)
 
     return []
 
 
-def get_decorator_name_or_none(dec_node):
-    if hasattr(dec_node, "id"):
-        return dec_node.id
-    elif hasattr(dec_node.func, "id"):
-        return dec_node.func.id
-    elif hasattr(dec_node.func.value, "id"):
-        return dec_node.func.value.id
+def get_decorator_name_or_none(decorator_node):
+    if hasattr(decorator_node, "id"):
+        return decorator_node.id
+    elif hasattr(decorator_node.func, "id"):
+        return decorator_node.func.id
+    elif hasattr(decorator_node.func.value, "id"):
+        return decorator_node.func.value.id
     else:
         return None
 
 
-def strip_reloading_decorator(func):
-    """Remove the 'reloading' decorator and all decorators before it"""
-    decorator_names = [get_decorator_name_or_none(dec) for dec in func.decorator_list]
-    reloading_idx = decorator_names.index("reloading")
-    func.decorator_list = func.decorator_list[reloading_idx + 1 :]
+def strip_reloading_decorator(function_with_decorator: ast.FunctionDef):
+    """
+    Remove the 'reloading' decorator and all decorators before it.
+    """
+    # Find decorators
+    decorator_names = [get_decorator_name_or_none(dec) for dec in function_with_decorator.decorator_list]
+    # Find index of "reloading" decorator
+    reloading_index = decorator_names.index("reloading")
+    function_without_decorator = deepcopy(function_with_decorator) # Use function with decorator as template
+    function_without_decorator.decorator_list = function_with_decorator.decorator_list[reloading_index + 1:]
+    return function_without_decorator
 
 
-def isolate_function_def(qualname, fn, tree):
-    """Strip everything but the function definition from the ast in-place.
-    Also strips the reloading decorator from the function definition"""
+def isolate_function_def(qualname: str, function: Callable, reloaded_file_ast: ast.Module) -> Union[None, ast.Module]:
+    """
+    Traverse AST for the entire reloaded file in a search for the
+    function (minus the reloading decorator) which is reloaded.
+    """
     length = len(qualname.split("."))
-    funcname = qualname.split(".")[-1]
-    classname = qualname.split(".")[length - 2] if length > 1 else None
+    function_name = qualname.split(".")[-1]
+    class_name = qualname.split(".")[length - 2] if length > 1 else None
 
-    found = False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == classname:
+    for node in ast.walk(reloaded_file_ast):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
             for subnode in node.body:
-                if isinstance(subnode, ast.FunctionDef) and subnode.name == funcname:
+                if isinstance(subnode, ast.FunctionDef) and subnode.name == function_name:
                     if "reloading" in [
-                        get_decorator_name_or_none(dec)
-                        for dec in subnode.decorator_list
+                        get_decorator_name_or_none(decorator)
+                        for decorator in subnode.decorator_list
                     ]:
-                        strip_reloading_decorator(subnode)
-                        tree.body = [subnode]
-                        found = True
-    return found
+                        function_node = strip_reloading_decorator(subnode)
+                        function_node_ast = deepcopy(reloaded_file_ast) # Use reloaded_file_ast as template.
+                        function_node_ast.body = [function_node]
+                        return function_node_ast
+        if isinstance(node, ast.FunctionDef) and node.name == function_name:
+            if "reloading" in [
+                get_decorator_name_or_none(decorator)
+                for decorator in node.decorator_list
+            ]:
+                function_node = strip_reloading_decorator(node)
+                function_node_ast = deepcopy(reloaded_file_ast) # Use reloaded_file_ast as template.
+                function_node_ast.body = [ function_node ]
+                return function_node_ast
+    return None
 
 
-def get_function_def_code(fpath, fn):
-    tree = parse_file_until_successful(fpath)
-    found = isolate_function_def(fn.__qualname__, fn, tree)
-    if not found:
-        return None
-    compiled = compile(tree, filename="", mode="exec")
-    return compiled
+def get_function_def_code(filepath: str, function: Callable) -> Union[None, ast.Module]:
+    reloaded_file_ast: ast.Module = parse_file_until_successful(filepath)
+    function_ast = isolate_function_def(function.__qualname__, function, reloaded_file_ast)
+    return function_ast
 
 
-def get_reloaded_function(caller_globals, caller_locals, fpath, fn):
-    code = get_function_def_code(fpath, fn)
-    if code is None:
+def get_reloaded_function(caller_globals: Dict[str, Any],
+                          caller_locals: Dict[str, Any],
+                          filepath: str,
+                          function: Callable) -> Union[None, Callable]:
+    function_ast = get_function_def_code(filepath, function)
+    if function_ast is None:
         return None
     # need to copy locals, otherwise the exec will overwrite the decorated with the undecorated new version
     # this became a need after removing the reloading decorator from the newly defined version
     caller_locals_copy = caller_locals.copy()
-    exec(code, caller_globals, caller_locals_copy)
-    func = caller_locals_copy[fn.__name__]
-    return func
+    compiled_body = compile(function_ast, filename="", mode="exec")
+    exec(compiled_body, caller_globals, caller_locals_copy)
+    function = caller_locals_copy[function.__name__]
+    return function
 
 
-def _reloading_function(fn, every=1):
-    stack = inspect.stack()
-    frame, fpath = stack[2][:2]
-    caller_locals = frame.f_locals
-    caller_globals = frame.f_globals
+def _reloading_function(function: Callable) -> Callable:
+    stack: list[inspect.FrameInfo] = inspect.stack()
+    # The first element on the stack is the caller of inspect.stack() i.e. _reloading_function
+    assert stack[0].function == '_reloading_function'
+    # The second element is the caller of the first, i.e. reloading
+    assert stack[1].function == 'reloading'
+    # The third element is the loop which called reloading.
+    function_frame_info: inspect.FrameInfo = stack[2]
+    filepath: str = function_frame_info.filename
 
+    caller_globals = function_frame_info.frame.f_globals
+    caller_locals = function_frame_info.frame.f_locals
     # crutch to use dict as python2 doesn't support nonlocal
     state = {
-        "func": fn,
+        "function": function,
         "reloads": 0,
     }
 
     def wrapped(*args, **kwargs):
-        if state["reloads"] % every == 0:
-            state["func"] = (
-                get_reloaded_function(caller_globals, caller_locals, fpath, fn)
-                or state["func"]
-            )
+        state["function"] = (
+            get_reloaded_function(caller_globals,
+                                  caller_locals,
+                                  filepath,
+                                  function)
+            or state["function"]
+        )
         state["reloads"] += 1
         while True:
             try:
-                result = state["func"](*args, **kwargs)
+                result = state["function"](*args, **kwargs)
                 return result
             except Exception:
-                handle_exception(fpath)
+                handle_exception(filepath)
                 state["func"] = (
-                    get_reloaded_function(caller_globals, caller_locals, fpath, fn)
-                    or state["func"]
+                    get_reloaded_function(caller_globals,
+                                          caller_locals,
+                                          filepath,
+                                          function)
+                    or state["function"]
                 )
 
-    wrapped.__signature__ = inspect.signature(fn)
-    caller_locals[fn.__name__] = wrapped
+    wrapped.__signature__ = inspect.signature(function) # type: ignore
+    caller_locals[function.__name__] = wrapped
     return wrapped

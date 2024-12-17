@@ -36,3 +36,10 @@ development = [
   "pyright",
   "build",
 ]
+
+[tool.pyright]
+include = ["reloading"]
+exclude = [
+  "**/__pycache__",
+  "examples",
+]
