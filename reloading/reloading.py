@@ -3,7 +3,7 @@ import sys
 import ast
 import traceback
 import types
-from typing import Optional, Union, Callable, Iterable, Dict, Any, overload
+from typing import Optional, Union, Callable, Iterable, Dict, Any, overload, Tuple, List
 from itertools import chain
 from functools import partial, update_wrapper
 from copy import deepcopy
@@ -127,7 +127,7 @@ def parse_file_until_successful(filepath: str) -> ast.Module:
 
 def isolate_loop_body_and_get_iteration_variables(reloaded_file_ast: ast.Module,
                                                   lineno: int,
-                                                  loop_id: Union[None, str]) -> tuple[ast.Module, ast.Name, str]:
+                                                  loop_id: Union[None, str]) -> Tuple[ast.Module, ast.Name, str]:
     """
     Traverse AST for the entire reloaded file in a search for the
     loop which is reloaded.
@@ -163,7 +163,7 @@ def get_loop_id(ast_node: ast.For) -> str:
     return ast.dump(ast_node.target) + "__" + ast.dump(ast_node.iter)
 
 
-def get_loop_code(loop_frame_info: inspect.FrameInfo, loop_id: Union[None, str]) -> tuple[ast.Module, str, str]: # Return code object
+def get_loop_code(loop_frame_info: inspect.FrameInfo, loop_id: Union[None, str]) -> Tuple[ast.Module, str, str]:
     filepath: str = loop_frame_info.filename
     while True:
         reloaded_file_ast: ast.Module = parse_file_until_successful(filepath)
@@ -207,7 +207,7 @@ def handle_exception(filepath: str):
 
 
 def _reloading_loop(seq: Iterable) -> Iterable:
-    stack: list[inspect.FrameInfo] = inspect.stack()
+    stack: List[inspect.FrameInfo] = inspect.stack()
     # The first element on the stack is the caller of inspect.stack() i.e. _reloading_loop
     assert stack[0].function == '_reloading_loop'
     # The second element is the caller of the first, i.e. reloading
@@ -327,7 +327,7 @@ def get_reloaded_function(caller_globals: Dict[str, Any],
 
 
 def _reloading_function(function: Callable) -> Callable:
-    stack: list[inspect.FrameInfo] = inspect.stack()
+    stack: List[inspect.FrameInfo] = inspect.stack()
     # The first element on the stack is the caller of inspect.stack() i.e. _reloading_function
     assert stack[0].function == '_reloading_function'
     # The second element is the caller of the first, i.e. reloading
