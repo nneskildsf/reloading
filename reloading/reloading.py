@@ -1,5 +1,6 @@
 import inspect
 import sys
+import os
 import ast
 import traceback
 from typing import (Optional,
@@ -13,6 +14,10 @@ from typing import (Optional,
 from itertools import chain
 from functools import partial, update_wrapper
 from copy import deepcopy
+import logging
+
+log = logging.getLogger("reloading")
+logging.basicConfig(level=logging.INFO)
 
 
 class NoIterPartial(partial):
@@ -81,8 +86,8 @@ def reloading(fn_or_seq_or_bool: Optional[
             return _reloading_loop(fn_or_seq_or_bool)
         else:
             raise TypeError(
-                f"{reloading.__name__} expected function or iterable"
-                f", got {type(fn_or_seq_or_bool)}"
+                f'{reloading.__name__} expected function or iterable'
+                f', got "{type(fn_or_seq_or_bool)}"'
             )
     else:
         return _reloading_loop(iter(int, 1))
@@ -115,7 +120,7 @@ def format_iteration_variables(ast_node: Union[ast.Name,
     # for i, j in zip(range(10), range(10)):
     #   pass
     if ast_node is None:
-        return ''
+        return ""
 
     if isinstance(ast_node, ast.Name):
         return ast_node.id
@@ -166,6 +171,14 @@ class WhileLoop:
         self.ast: ast.Module = ast_module
         self.test: ast.Call = test
         self.id: str = id
+        # Replace "break" and "continue" with custom exceptions.
+        # Otherwise SyntaxError is raised because these instructions
+        # are called outside a loop.
+        code = ast.unparse(ast_module)
+        code = code.replace("break", "raise Exception('break')")
+        code = code.replace("continue", "raise Exception('continue')")
+        # Compile loop body
+        self.compiled_body = compile(code, filename="", mode="exec")
 
 
 class ForLoop:
@@ -185,6 +198,14 @@ class ForLoop:
         self.iteration_variables_str: str = format_iteration_variables(
                                             iteration_variables)
         self.id: str = id
+        # Replace "break" and "continue" with custom exceptions.
+        # Otherwise SyntaxError is raised because these instructions
+        # are called outside a loop.
+        code = ast.unparse(ast_module)
+        code = code.replace("break", "raise Exception('break')")
+        code = code.replace("continue", "raise Exception('continue')")
+        # Compile loop body
+        self.compiled_body = compile(code, filename="", mode="exec")
 
 
 def get_loop_object(loop_frame_info: inspect.FrameInfo,
@@ -270,23 +291,9 @@ def handle_exception(filepath: str):
         line_number = int(exception.split(", line ")[-1].split(",")[0])
         print(line_number)
         raise Exception(
-            "An error occurred. Please fix the issue in the file"
-            f"'{filepath}' and run the script again."
+            'An error occurred. Please fix the issue in the file'
+            f'"{filepath}" and run the script again.'
         )
-
-
-def execute_iteration(loop_body_ast: ast.Module,
-                      caller_globals,
-                      caller_locals):
-    # Replace "break" and "continue" with custom exceptions.
-    # Otherwise SyntaxError is raised because these instructions
-    # are called outside a loop.
-    code = ast.unparse(loop_body_ast)
-    code = code.replace("break", "raise Exception('break')")
-    code = code.replace("continue", "raise Exception('continue')")
-    # Run loop body
-    compiled_body = compile(code, filename="", mode="exec")
-    exec(compiled_body, caller_globals, caller_locals)
 
 
 def execute_for_loop(seq: Iterable, loop_frame_info: inspect.FrameInfo):
@@ -294,27 +301,34 @@ def execute_for_loop(seq: Iterable, loop_frame_info: inspect.FrameInfo):
     caller_globals: Dict[str, Any] = loop_frame_info.frame.f_globals
     caller_locals: Dict[str, Any] = loop_frame_info.frame.f_locals
 
+    file_stat: int = os.stat(filepath).st_mtime_ns
     for_loop = get_loop_code(
         loop_frame_info, loop_id=None
     )
 
-    # Make up a name for a variable which is not already present in the global
-    # or local namespace.
-    vacant_variable_name: str = unique_name(chain(caller_locals.keys(),
-                                                  caller_globals.keys()))
     for i, iteration_variable_values in enumerate(seq):
-        # Reload code
-        for_loop = get_loop_code(
-            loop_frame_info, loop_id=for_loop.id
-        )
+        # Reload code if possibly modified
+        if file_stat != os.stat(filepath).st_mtime_ns:
+            log.info(f'For loop at line {loop_frame_info.lineno} of file '
+                     f'"{filepath}" has been reloaded.')
+            for_loop = get_loop_code(
+                loop_frame_info, loop_id=for_loop.id
+            )
+            file_stat = os.stat(filepath).st_mtime_ns
         assert isinstance(for_loop, ForLoop)
+        # Make up a name for a variable which is not already present in
+        # the global or local namespace.
+        vacant_variable_name: str = unique_name(chain(caller_locals.keys(),
+                                                      caller_globals.keys()))
         # Store iteration variable values in vacant variable in local scope
         caller_locals[vacant_variable_name] = iteration_variable_values
         # Reassign variable values from vacant variable in local scope
         exec(for_loop.iteration_variables_str + " = " + vacant_variable_name,
              caller_globals, caller_locals)
+        # Clean up namespace
+        del caller_locals[vacant_variable_name]
         try:
-            execute_iteration(for_loop.ast, caller_globals, caller_locals)
+            exec(for_loop.compiled_body, caller_globals, caller_locals)
         except Exception as exception:
             # A "break" inside the loop body will cause a SyntaxError
             # because the code is executed outside the scope of a loop.
@@ -332,16 +346,17 @@ def execute_while_loop(loop_frame_info: inspect.FrameInfo):
     caller_globals: Dict[str, Any] = loop_frame_info.frame.f_globals
     caller_locals: Dict[str, Any] = loop_frame_info.frame.f_locals
 
+    file_stat: int = os.stat(filepath).st_mtime_ns
     while_loop = get_loop_code(
         loop_frame_info, loop_id=None
     )
-    # Make up a name for a variable which is not already present in the global
-    # or local namespace.
-    vacant_variable_name: str = unique_name(chain(caller_locals.keys(),
-                                                  caller_globals.keys()))
 
     def condition(while_loop):
         test = ast.unparse(while_loop.test).replace("reloading", "")
+        # Make up a name for a variable which is not already present in
+        # the global or local namespace.
+        vacant_variable_name: str = unique_name(chain(caller_locals.keys(),
+                                                      caller_globals.keys()))
         exec(vacant_variable_name+" = "+test, caller_globals, caller_locals)
         result = deepcopy(caller_locals[vacant_variable_name])
         del caller_locals[vacant_variable_name]
@@ -350,12 +365,16 @@ def execute_while_loop(loop_frame_info: inspect.FrameInfo):
     i = 0
     while condition(while_loop):
         i += 1
-        # Reload code
-        while_loop = get_loop_code(
-            loop_frame_info, loop_id=while_loop.id
-        )
+        # Reload code if possibly modified
+        if file_stat != os.stat(filepath).st_mtime_ns:
+            log.info(f'While loop at line {loop_frame_info.lineno} of file '
+                     f'"{filepath}" has been reloaded.')
+            while_loop = get_loop_code(
+                loop_frame_info, loop_id=while_loop.id
+            )
+            file_stat = os.stat(filepath).st_mtime_ns
         try:
-            execute_iteration(while_loop.ast, caller_globals, caller_locals)
+            exec(while_loop.compiled_body, caller_globals, caller_locals)
         except Exception as exception:
             # A "break" inside the loop body will cause a SyntaxError
             # because the code is executed outside the scope of a loop.
@@ -372,9 +391,9 @@ def _reloading_loop(seq: Union[Iterable, bool]) -> Iterable:
     stack: List[inspect.FrameInfo] = inspect.stack()
     # The first element on the stack is the caller of inspect.stack()
     # i.e. _reloading_loop
-    assert stack[0].function == '_reloading_loop'
+    assert stack[0].function == "_reloading_loop"
     # The second element is the caller of the first, i.e. reloading
-    assert stack[1].function == 'reloading'
+    assert stack[1].function == "reloading"
     # The third element is the loop which called reloading.
     loop_frame_info: inspect.FrameInfo = stack[2]
     loop_object = get_loop_code(
@@ -387,7 +406,10 @@ def _reloading_loop(seq: Union[Iterable, bool]) -> Iterable:
     elif isinstance(loop_object, WhileLoop):
         execute_while_loop(loop_frame_info)
     # If there is a third element, then it is the scope which called the loop.
-    if len(stack) > 3:
+    # It is only possible to modify variables in this scope since Python 3.13.
+    if (len(stack) > 3 and
+       sys.version_info.major >= 3 and
+       sys.version_info.minor >= 13):
         # Copy locals from loop to caller of loop.
         # This ensures that the following results in '9':
         # for i in reloading(range(10)):
@@ -395,6 +417,13 @@ def _reloading_loop(seq: Union[Iterable, bool]) -> Iterable:
         # print(i)
         loop_caller_frame: inspect.FrameInfo = stack[3]
         loop_caller_frame.frame.f_locals.update(loop_frame_info.frame.f_locals)
+    else:
+        variables = ", ".join(
+                    f'"{k}"' for k in loop_frame_info.frame.f_locals.keys())
+        log.warning(f"Variable(s) {variables} in reloaded loop were not "
+                    "exported to the scope which called the reloaded loop at "
+                    f'line {loop_frame_info.lineno} in file '
+                    f'"{loop_frame_info.filename}".')
     return []
 
 
@@ -499,29 +528,41 @@ def _reloading_function(function: Callable) -> Callable:
     stack: List[inspect.FrameInfo] = inspect.stack()
     # The first element on the stack is the caller of inspect.stack()
     # That is, this very function.
-    assert stack[0].function == '_reloading_function'
+    assert stack[0].function == "_reloading_function"
     # The second element is the caller of the first, i.e. reloading
-    assert stack[1].function == 'reloading'
+    assert stack[1].function == "reloading"
     # The third element is the loop which called reloading.
     function_frame_info: inspect.FrameInfo = stack[2]
     filepath: str = function_frame_info.filename
 
     caller_globals = function_frame_info.frame.f_globals
     caller_locals = function_frame_info.frame.f_locals
+
+    file_stat: int = os.stat(filepath).st_mtime_ns
+
     # crutch to use dict as python2 doesn't support nonlocal
     state = {
-        "function": function,
+        "function": get_reloaded_function(caller_globals,
+                                          caller_locals,
+                                          function_frame_info,
+                                          function),
         "reloads": 0,
     }
 
     def wrapped(*args, **kwargs):
-        state["function"] = (
-            get_reloaded_function(caller_globals,
-                                  caller_locals,
-                                  function_frame_info,
-                                  function)
-            or state["function"]
-        )
+        nonlocal file_stat
+        # Reload code if possibly modified
+        if file_stat != os.stat(filepath).st_mtime_ns:
+            log.info(f'Function at line {function_frame_info.lineno} '
+                     f'of file "{filepath}" has been reloaded.')
+            state["function"] = (
+                get_reloaded_function(caller_globals,
+                                      caller_locals,
+                                      function_frame_info,
+                                      function)
+                or state["function"]
+            )
+            file_stat = os.stat(filepath).st_mtime_ns
         state["reloads"] += 1
         while True:
             try:
@@ -529,13 +570,6 @@ def _reloading_function(function: Callable) -> Callable:
                 return result
             except Exception:
                 handle_exception(filepath)
-                state["func"] = (
-                    get_reloaded_function(caller_globals,
-                                          caller_locals,
-                                          function_frame_info,
-                                          function)
-                    or state["function"]
-                )
 
     wrapped.__signature__ = inspect.signature(function)  # type: ignore
     caller_locals[function.__name__] = wrapped

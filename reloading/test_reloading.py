@@ -1,6 +1,7 @@
 import unittest
+import sys
 import os
-import subprocess as sp
+import subprocess
 import time
 
 from reloading import reloading
@@ -17,11 +18,14 @@ def run_and_update_source(init_src, updated_src=None, update_after=0.5):
         f.write(init_src)
 
     cmd = ["python", SRC_FILE_NAME]
-    with sp.Popen(cmd, stdout=sp.PIPE, stderr=sp.PIPE) as proc:
+    with subprocess.Popen(cmd,
+                          stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE) as proc:
         if updated_src is not None:
             time.sleep(update_after)
             with open(SRC_FILE_NAME, "w") as f:
                 f.write(updated_src)
+                f.flush()
 
         try:
             stdout, _ = proc.communicate(timeout=2)
@@ -46,7 +50,8 @@ class TestReloadingForLoopWithoutChanges(unittest.TestCase):
             if i > 10:
                 break
 
-        self.assertEqual(i, 11)
+        if sys.version_info.major >= 3 and sys.version_info.minor >= 13:
+            self.assertEqual(i, 11)
 
     def test_range_pass(self):
         for _ in reloading(range(10)):
@@ -57,7 +62,8 @@ class TestReloadingForLoopWithoutChanges(unittest.TestCase):
         for _ in reloading(range(10)):
             i += 1
 
-        self.assertEqual(i, 10)
+        if sys.version_info.major >= 3 and sys.version_info.minor >= 13:
+            self.assertEqual(i, 10)
 
     def test_complex_iteration_variables(self):
         i = 0
@@ -65,8 +71,9 @@ class TestReloadingForLoopWithoutChanges(unittest.TestCase):
         for j, (a, b) in reloading(enumerate(zip(range(10), range(10)))):
             i += 1
 
-        self.assertEqual(i, 10)
-        self.assertEqual(j, 9)
+        if sys.version_info.major >= 3 and sys.version_info.minor >= 13:
+            self.assertEqual(i, 10)
+            self.assertEqual(j, 9)
 
 
 class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
@@ -84,7 +91,8 @@ class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
             if i > 9:
                 break
 
-        self.assertEqual(i, 10)
+        if sys.version_info.major >= 3 and sys.version_info.minor >= 13:
+            self.assertEqual(i, 10)
 
     def test_condition_changes(self):
         i = 0
@@ -98,7 +106,8 @@ class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
                 def condition():
                     return False
 
-        self.assertEqual(i, 10)
+        if sys.version_info.major >= 3 and sys.version_info.minor >= 13:
+            self.assertEqual(i, 10)
 
     def test_condition(self):
         i = 0
@@ -126,7 +135,7 @@ class TestReloadingFunctionWithoutChanges(unittest.TestCase):
         def function():
             return "result"
 
-        self.assertTrue(function() == "result")
+        self.assertEqual(function(), "result")
 
     def test_nested_function(self):
         def outer():
@@ -135,7 +144,7 @@ class TestReloadingFunctionWithoutChanges(unittest.TestCase):
                 return "result"
             return inner()
 
-        self.assertTrue(outer() == "result")
+        self.assertEqual(outer(), "result")
 
     def test_function_signature_is_preserved(self):
         @reloading
@@ -143,7 +152,7 @@ class TestReloadingFunctionWithoutChanges(unittest.TestCase):
             return "result"
 
         import inspect
-        self.assertTrue(str(inspect.signature(some_func)) == "(a, b, c)")
+        self.assertEqual(str(inspect.signature(some_func)), "(a, b, c)")
 
 
 class TestReloadingForLoopWithChanges(unittest.TestCase):
@@ -287,7 +296,8 @@ for i in range(1):
             replace("static = 'A'", "static = 'D'"),
         )
 
-        self.assertTrue("AB" in stdout and "AC" in stdout)
+        self.assertIn("AB", stdout)
+        self.assertIn("AC", stdout)
 
 
 class TestReloadingWhileLoopWithChanges(unittest.TestCase):
@@ -348,7 +358,9 @@ for _ in range(10):
             init_src=code,
             updated_src=code.replace("a+b", "a-b"),
         )
-        self.assertTrue("3" in stdout and "1" in stdout)
+
+        self.assertIn("3", stdout)
+        self.assertIn("1", stdout)
 
     def test_nested_function(self):
         code = """
@@ -372,7 +384,9 @@ for i in range(10):
             updated_src=code.replace("dynamic = 'B'", "dynamic = 'C'").
             replace("static = 'D'", "static = 'D'"),
         )
-        self.assertTrue("AB" in stdout and "AC" in stdout)
+
+        self.assertIn("AB", stdout)
+        self.assertIn("AC", stdout)
 
 
 if __name__ == "__main__":
