@@ -7,93 +7,6 @@ from reloading import reloading
 
 SRC_FILE_NAME = "temporary_testing_file.py"
 
-TEST_CHANGING_SOURCE_LOOP_CONTENT = """
-from reloading import reloading
-from time import sleep
-
-for epoch, ep in reloading(zip(range(10), range(1,11))):
-    sleep(0.2)
-    print('INITIAL_FILE_CONTENTS')
-"""
-
-TEST_CHANGING_LINE_NUMBER_OF_LOOP = """
-from reloading import reloading
-from time import sleep
-
-pass
-
-for epoch in reloading(range(10)):
-    sleep(0.2)
-    print('INITIAL_FILE_CONTENTS')
-"""
-
-TEST_CHANGING_SOURCE_FN_CONTENT = """
-from reloading import reloading
-from time import sleep
-
-@reloading
-def reload_this_fn():
-    print('INITIAL_FILE_CONTENTS')
-
-for epoch in reloading(range(10)):
-    sleep(0.2)
-    reload_this_fn()
-"""
-
-TEST_KEEP_LOCAL_VARIABLES_CONTENT = """
-from reloading import reloading
-from time import sleep
-
-fpath = "DON'T CHANGE ME"
-for epoch in reloading(range(1)):
-    assert fpath == "DON'T CHANGE ME"
-"""
-
-TEST_PERSIST_AFTER_LOOP = """
-from reloading import reloading
-from time import sleep
-
-state = 'INIT'
-for epoch in reloading(range(1)):
-    state = 'CHANGED'
-
-assert state == 'CHANGED'
-"""
-
-TEST_COMMENT_AFTER_LOOP_CONTENT = """
-from reloading import reloading
-from time import sleep
-
-for epoch in reloading(range(10)):
-    sleep(0.2)
-    print('INITIAL_FILE_CONTENTS')
-
-# a comment here should not cause an error
-"""
-
-TEST_FORMAT_STR_IN_LOOP_CONTENT = """
-from reloading import reloading
-from time import sleep
-
-for epoch in reloading(range(10)):
-    sleep(0.2)
-    file_contents = 'FILE_CONTENTS'
-    print(f'INITIAL_{file_contents}')
-"""
-
-TEST_FUNCTION_AFTER = """
-from reloading import reloading
-from time import sleep
-
-@reloading
-def some_func(a, b):
-    sleep(0.2)
-    print(a+b)
-
-for _ in range(10):
-    some_func(2,1)
-"""
-
 
 def run_and_update_source(init_src, updated_src=None, update_after=0.5):
     """Runs init_src in a subprocess and updates source to updated_src after
@@ -125,87 +38,341 @@ def run_and_update_source(init_src, updated_src=None, update_after=0.5):
     return stdout, has_error
 
 
-class TestReloading(unittest.TestCase):
-    def test_simple_looping(self):
-        iters = 0
+class TestReloadingForLoopWithoutChanges(unittest.TestCase):
+    def test_no_argument(self):
+        i = 0
+        for _ in reloading():
+            i += 1
+            if i > 10:
+                break
+
+        self.assertEqual(i, 11)
+
+    def test_range_pass(self):
         for _ in reloading(range(10)):
-            iters += 1
+            pass
 
-    def test_changing_source_loop(self):
-        stdout, _ = run_and_update_source(
-            init_src=TEST_CHANGING_SOURCE_LOOP_CONTENT,
-            updated_src=TEST_CHANGING_SOURCE_LOOP_CONTENT.replace("INITIAL", "CHANGED").rstrip("\n"),
-        )
-        print(stdout)
-        self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
+    def test_range_body(self):
+        i = 0
+        for _ in reloading(range(10)):
+            i += 1
 
-    def test_changing_line_number_of_loop(self):
-        stdout, _ = run_and_update_source(
-            init_src=TEST_CHANGING_LINE_NUMBER_OF_LOOP,
-            updated_src=(
-                TEST_CHANGING_LINE_NUMBER_OF_LOOP
-                    .replace("pass", "pass\npass\n")
-                    .replace("INITIAL", "CHANGED")
-                    .rstrip("\n")
-            ),
-        )
-        print(stdout)
-        self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
+        self.assertEqual(i, 10)
 
-    def test_comment_after_loop(self):
-        stdout, _ = run_and_update_source(
-            init_src=TEST_COMMENT_AFTER_LOOP_CONTENT,
-            updated_src=TEST_COMMENT_AFTER_LOOP_CONTENT.replace("INITIAL", "CHANGED").rstrip("\n"),
-        )
+    def test_complex_iteration_variables(self):
+        i = 0
+        j = 0
+        for j, (a, b) in reloading(enumerate(zip(range(10), range(10)))):
+            i += 1
 
-        self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
+        self.assertEqual(i, 10)
+        self.assertEqual(j, 9)
 
-    def test_format_str_in_loop(self):
-        stdout, _ = run_and_update_source(
-            init_src=TEST_FORMAT_STR_IN_LOOP_CONTENT,
-            updated_src=TEST_FORMAT_STR_IN_LOOP_CONTENT.replace("INITIAL", "CHANGED").rstrip("\n"),
-        )
 
-        self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
+class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
+    def test_false(self):
+        i = 0
+        while reloading(False):
+            i += 1
 
-    def test_keep_local_variables(self):
-        _, has_error = run_and_update_source(init_src=TEST_KEEP_LOCAL_VARIABLES_CONTENT)
-        self.assertFalse(has_error)
+        self.assertEqual(i, 0)
 
-    def test_persist_after_loop(self):
-        _, has_error = run_and_update_source(init_src=TEST_PERSIST_AFTER_LOOP)
-        self.assertFalse(has_error)
+    def test_true_break(self):
+        i = 0
+        while reloading(True):
+            i += 1
+            if i > 9:
+                break
 
-    def test_simple_function(self):
+        self.assertEqual(i, 10)
+
+    def test_condition_changes(self):
+        i = 0
+
+        def condition():  # type: ignore
+            return True
+
+        while reloading(condition()):
+            i += 1
+            if i > 9:
+                def condition():
+                    return False
+
+        self.assertEqual(i, 10)
+
+    def test_condition(self):
+        i = 0
+        while i < 10:
+            i += 1
+
+        self.assertEqual(i, 10)
+
+
+class TestReloadingFunctionWithoutChanges(unittest.TestCase):
+    def test_empty_function_definition(self):
         @reloading
-        def some_func():
+        def function():
+            pass
+
+    def test_empty_function_run(self):
+        @reloading
+        def function():
+            pass
+
+        function()
+
+    def test_function_return_value(self):
+        @reloading
+        def function():
             return "result"
 
-        self.assertTrue(some_func() == "result")
+        self.assertTrue(function() == "result")
 
-    def test_reloading_function(self):
-        stdout, _ = run_and_update_source(
-            init_src=TEST_FUNCTION_AFTER,
-            updated_src=TEST_FUNCTION_AFTER.replace("a+b", "a-b"),
-        )
-        self.assertTrue("3" in stdout and "1" in stdout)
+    def test_nested_function(self):
+        def outer():
+            @reloading
+            def inner():
+                return "result"
+            return inner()
+
+        self.assertTrue(outer() == "result")
 
     def test_function_signature_is_preserved(self):
-        import inspect
-
         @reloading
         def some_func(a, b, c):
             return "result"
 
+        import inspect
         self.assertTrue(str(inspect.signature(some_func)) == "(a, b, c)")
 
-    def test_changing_source_function(self):
+
+class TestReloadingForLoopWithChanges(unittest.TestCase):
+    def test_changing_source_loop(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+for epoch1, epoch2 in reloading(zip(range(10), range(1,11))):
+    sleep(0.2)
+    print('INITIAL_FILE_CONTENTS')
+"""
         stdout, _ = run_and_update_source(
-            init_src=TEST_CHANGING_SOURCE_FN_CONTENT,
-            updated_src=TEST_CHANGING_SOURCE_FN_CONTENT.replace("INITIAL", "CHANGED").rstrip("\n"),
+            init_src=code,
+            updated_src=code.replace("INITIAL", "CHANGED"),
         )
-        print(stdout)
-        self.assertTrue("INITIAL_FILE_CONTENTS" in stdout and "CHANGED_FILE_CONTENTS" in stdout)
+        self.assertIn("INITIAL_FILE_CONTENTS", stdout)
+        self.assertIn("CHANGED_FILE_CONTENTS", stdout)
+
+    def test_changing_line_number_of_loop(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+pass
+
+for epoch in reloading(range(10)):
+    sleep(0.2)
+    print('INITIAL_FILE_CONTENTS')
+"""
+        stdout, _ = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("pass", "pass\npass\n").
+            replace("INITIAL", "CHANGED"),
+        )
+        self.assertIn("INITIAL_FILE_CONTENTS", stdout)
+        self.assertIn("CHANGED_FILE_CONTENTS", stdout)
+
+    def test_keep_local_variables(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+text = "DON'T CHANGE ME"
+for epoch in reloading(range(10)):
+    sleep(0.2)
+    print('INITIAL_FILE_CONTENTS')
+    assert text == "DON'T CHANGE ME"
+"""
+        stdout, has_error = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("INITIAL", "CHANGED")
+        )
+        self.assertFalse(has_error)
+        self.assertIn("INITIAL_FILE_CONTENTS", stdout)
+        self.assertIn("CHANGED_FILE_CONTENTS", stdout)
+
+    def test_persist_after_loop(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+state = 'INIT'
+for epoch in reloading(range(1)):
+    state = 'CHANGED'
+
+assert state == 'CHANGED'
+"""
+        _, has_error = run_and_update_source(init_src=code)
+        self.assertFalse(has_error)
+
+    def test_comment_after_loop(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+for epoch in reloading(range(10)):
+    sleep(0.2)
+    print('INITIAL_FILE_CONTENTS')
+
+# a comment here should not cause an error
+"""
+        stdout, _ = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("INITIAL", "CHANGED"),
+        )
+
+        self.assertIn("INITIAL_FILE_CONTENTS", stdout)
+        self.assertIn("CHANGED_FILE_CONTENTS", stdout)
+
+    def test_format_str_in_loop(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+for epoch in reloading(range(10)):
+    sleep(0.2)
+    file_contents = 'FILE_CONTENTS'
+    print(f'INITIAL_{file_contents}')
+"""
+        stdout, _ = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("INITIAL", "CHANGED").rstrip("\n"),
+        )
+
+        self.assertIn("INITIAL_FILE_CONTENTS", stdout)
+        self.assertIn("CHANGED_FILE_CONTENTS", stdout)
+
+    def test_unicode(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+for epoch, ep in reloading(zip(range(10), range(1,11))):
+    sleep(0.2)
+    print('INITIAL_FILE_CONTENTS'+'😊')
+"""
+        stdout, _ = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("INITIAL", "CHANGED"),
+        )
+
+        self.assertIn("INITIAL_FILE_CONTENTS", stdout)
+        self.assertIn("CHANGED_FILE_CONTENTS", stdout)
+
+    def test_nested_loop(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+for i in range(1):
+    static = 'A'
+    for j in reloading(range(10, 20)):
+        dynamic = 'B'
+        print(static+dynamic)
+        sleep(0.2)
+"""
+        stdout, _ = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("dynamic = 'B'", "dynamic = 'C'").
+            replace("static = 'A'", "static = 'D'"),
+        )
+
+        self.assertTrue("AB" in stdout and "AC" in stdout)
+
+
+class TestReloadingWhileLoopWithChanges(unittest.TestCase):
+    def test_changing_source_loop(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+i = 0
+while reloading(i < 100):
+    sleep(0.2)
+    print(i)
+    i += 1
+"""
+        stdout, _ = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("i < 100", "i < 10"),
+        )
+        max_i = stdout.strip().split("\n")[-1]
+        self.assertEqual(max_i, "9")
+
+
+class TestReloadingFunctionsWithChanges(unittest.TestCase):
+    def test_changing_source_function(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+@reloading
+def reload_this_fn():
+    print('INITIAL_FILE_CONTENTS')
+
+for epoch in reloading(range(10)):
+    sleep(0.2)
+    reload_this_fn()
+"""
+        stdout, _ = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("INITIAL", "CHANGED"),
+        )
+        self.assertIn("INITIAL_FILE_CONTENTS", stdout)
+        self.assertIn("CHANGED_FILE_CONTENTS", stdout)
+
+    def test_reloading_function(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+@reloading
+def some_func(a, b):
+    sleep(0.2)
+    print(a+b)
+
+for _ in range(10):
+    some_func(2,1)
+"""
+        stdout, _ = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("a+b", "a-b"),
+        )
+        self.assertTrue("3" in stdout and "1" in stdout)
+
+    def test_nested_function(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+def outer():
+    static = 'A'
+    @reloading
+    def inner(x):
+        dynamic = 'B'
+        return x + dynamic
+    return inner(static)
+
+for i in range(10):
+    print(outer())
+    sleep(0.2)
+"""
+        stdout, _ = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("dynamic = 'B'", "dynamic = 'C'").
+            replace("static = 'D'", "static = 'D'"),
+        )
+        self.assertTrue("AB" in stdout and "AC" in stdout)
 
 
 if __name__ == "__main__":
