@@ -20,7 +20,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: python -m pip install --upgrade pip
-      - name: Install relaoding (as editable)
+      - name: Install reloading (as editable)
         run: pip install -e ".[development]"
       - name: Lint with flake8. Stop if syntax errors or undefined variables.
         run: |
@@ -35,6 +35,4 @@ jobs:
       - name: Type check with pyright
         run: pyright
       - name: Test with unittest
-        run: |
-          cd reloading
-          python -m unittest
+        run: python -m unittest
