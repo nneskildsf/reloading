@@ -1,144 +1,71 @@
-# reloading
-[![pypi badge](https://img.shields.io/pypi/v/reloading?color=%230c0)](https://pypi.org/project/reloading/)
+This is a fork of https://github.com/julvo/reloading with the following improvements:
+* Typing (pyright compliance)
+* Linting (flak8 compliance)
+* Expanded test suite
+* Supports multiple invocations of `reloading` in a single file
+* Supports `while` loop
+* Preserves function signature for functions decorated with `@reloading`
+* CI with Github Actions workflow
+* Reload code only if source code file has been changed
+* With Python 3.13: Exports locals of reloaded loop to parent locals
 
-A Python utility to reload a loop body from source on each iteration without
-losing state
-
-Useful for editing source code during training of deep learning models. This lets
-you e.g. add logging, print statistics or save the model without restarting the
-training and, therefore, without losing the training progress.
-
-![Demo](https://github.com/julvo/reloading/blob/master/examples/demo/demo.gif)
+# Reloading
+A Python utility to reload a function or loop body from source on each iteration without losing state.
 
 ## Install
 ```
-pip install reloading
+pip install git+https://github.com/nneskildsf/reloading.git
 ```
 
 ## Usage
 
-To reload the body of a `for` loop from source before each iteration, simply 
-wrap the iterator with `reloading`, e.g.
+To reload the body of a `for` loop from source before each iteration, wrap the iterator with `reloading`:
 ```python
 from reloading import reloading
 
 for i in reloading(range(10)):
-    # this code will be reloaded before each iteration
+    # This code will be reloaded before each iteration
     print(i)
+```
 
+To reload the body and condition of a `while` loop from source before each iteration, wrap the condition with `reloading`:
+```python
+from reloading import reloading
+
+i = 0
+while reloading(i<10):
+    # This code and the condition (i<10) will be reloaded before each iteration
+    print(i)
+    i += 1
 ```
 
 To reload a function from source before each execution, decorate the function
-definition with `@reloading`, e.g.
+definition with `@reloading`:
 ```python
 from reloading import reloading
 
 @reloading
-def some_function():
-    # this code will be reloaded before each invocation
+def function():
+    # This code will be reloaded before each function call
     pass
 ```
 
 ## Additional Options
 
-Pass `None` instead of an iterable to create an endless reloading loop, e.g. 
+To iterate forever in a `for` loop you can omit the argument:
 ```python
-for i in reloading():
-    # this code will loop forever and reload from source before each iteration
+from reloading import reloading
+
+for _ in reloading():
+    # This code will loop forever and reload from source before each iteration
     pass
 ```
 
-## Examples
-
-Here are the short snippets of how to use reloading with your favourite library.
-For complete examples, check out the [examples folder](https://github.com/julvo/reloading/blob/master/examples).
-
-### PyTorch
-```python
-for epoch in reloading(range(NB_EPOCHS)):
-    # the code inside this outer loop will be reloaded before each epoch
-
-    for images, targets in dataloader:
-        optimiser.zero_grad()
-        predictions = model(images)
-        loss = F.cross_entropy(predictions, targets)
-        loss.backward()
-        optimiser.step()
-```
-[Here](https://github.com/julvo/reloading/blob/master/examples/pytorch/train.py) is a full PyTorch example.
-
-### fastai
-```python
-@reloading
-def update_learner(learner):
-    # this function will be reloaded from source before each epoch so that you
-    # can make changes to the learner while the training is running
-    pass
-
-class LearnerUpdater(LearnerCallback):
-    def on_epoch_begin(self, **kwargs):
-        update_learner(self.learn)
-
-path = untar_data(URLs.MNIST_SAMPLE)
-data = ImageDataBunch.from_folder(path)
-learn = cnn_learner(data, models.resnet18, metrics=accuracy, 
-                    callback_fns=[LearnerUpdater])
-learn.fit(10)
-```
-[Here](https://github.com/julvo/reloading/blob/master/examples/fastai/train.py) is a full fastai example.
-
-### Keras
-```python
-@reloading
-def update_model(model):
-    # this function will be reloaded from source before each epoch so that you
-    # can make changes to the model while the training is running using
-    # K.set_value()
-    pass
-
-class ModelUpdater(Callback):
-    def on_epoch_begin(self, epoch, logs=None):
-        update_model(self.model)
-
-model = Sequential()
-model.add(Dense(64, activation='relu', input_dim=20))
-model.add(Dense(10, activation='softmax'))
-
-sgd = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True)
-model.compile(loss='categorical_crossentropy',
-              optimizer=sgd,
-              metrics=['accuracy'])
-
-model.fit(x_train, y_train,
-          epochs=200,
-          batch_size=128,
-          callbacks=[ModelUpdater()])
-```
-[Here](https://github.com/julvo/reloading/blob/master/examples/keras/train.py) is a full Keras example.
-
-### TensorFlow
-```python
-for epoch in reloading(range(NB_EPOCHS)):
-    # the code inside this outer loop will be reloaded from source
-    # before each epoch so that you can change it during training
-  
-    train_loss.reset_states()
-    train_accuracy.reset_states()
-    test_loss.reset_states()
-    test_accuracy.reset_states()
-  
-    for images, labels in tqdm(train_ds):
-      train_step(images, labels)
-  
-    for test_images, test_labels in tqdm(test_ds):
-      test_step(test_images, test_labels)
-```
-[Here](https://github.com/julvo/reloading/blob/master/examples/tensorflow/train.py) is a full TensorFlow example.
-
-## Type Check and Testing
+## Lint, Type Check and Testing
 
 Run:
 ```
+$ flake8
 $ pyright
-$ python reloading/test_reloading.py
+$ python -m unittest
 ```
