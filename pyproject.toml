@@ -31,6 +31,7 @@ classifiers=[
 
 [project.urls]
 Repository = "https://github.com/eskildsf/reloading"
+DOWNLOAD = "https://github.com/nneskildsf/reloading/archive/refs/heads/master.zip"
 
 [project.optional-dependencies]
 development = [
