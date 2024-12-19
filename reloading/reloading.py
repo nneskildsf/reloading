@@ -167,6 +167,16 @@ def parse_file_until_successful(filepath: str) -> ast.Module:
             source = load_file(filepath)
 
 
+def replace_break_continue(ast_module: ast.Module):
+    # Replace "break" and "continue" with custom exceptions.
+    # Otherwise SyntaxError is raised because these instructions
+    # are called outside a loop.
+    code = ast.unparse(ast_module)
+    code = code.replace("break", "raise Exception('break')")
+    code = code.replace("continue", "raise Exception('continue')")
+    return compile(code, filename="", mode="exec")
+
+
 class WhileLoop:
     """
     Object to hold ast and test-function for a reloading while loop.
@@ -175,14 +185,7 @@ class WhileLoop:
         self.ast: ast.Module = ast_module
         self.test: ast.Call = test
         self.id: str = id
-        # Replace "break" and "continue" with custom exceptions.
-        # Otherwise SyntaxError is raised because these instructions
-        # are called outside a loop.
-        code = ast.unparse(ast_module)
-        code = code.replace("break", "raise Exception('break')")
-        code = code.replace("continue", "raise Exception('continue')")
-        # Compile loop body
-        self.compiled_body = compile(code, filename="", mode="exec")
+        self.compiled_body = replace_break_continue(self.ast)
 
 
 class ForLoop:
@@ -202,14 +205,7 @@ class ForLoop:
         self.iteration_variables_str: str = format_iteration_variables(
                                             iteration_variables)
         self.id: str = id
-        # Replace "break" and "continue" with custom exceptions.
-        # Otherwise SyntaxError is raised because these instructions
-        # are called outside a loop.
-        code = ast.unparse(ast_module)
-        code = code.replace("break", "raise Exception('break')")
-        code = code.replace("continue", "raise Exception('continue')")
-        # Compile loop body
-        self.compiled_body = compile(code, filename="", mode="exec")
+        self.compiled_body = replace_break_continue(self.ast)
 
 
 def get_loop_object(loop_frame_info: inspect.FrameInfo,
