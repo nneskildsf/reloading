@@ -35,6 +35,10 @@ class NoIterPartial(partial):
         )
 
 
+class ReloadingException(Exception):
+    pass
+
+
 @overload
 def reloading(fn_or_seq_or_bool: Iterable) -> Iterable: ...
 
@@ -78,7 +82,7 @@ def reloading(fn_or_seq_or_bool: Optional[
             A function, iterator or condition which should be reloaded from
             source before each invocation or iteration, respectively.
     """
-    if fn_or_seq_or_bool:
+    if fn_or_seq_or_bool is not None:
         if isinstance(fn_or_seq_or_bool, Callable):
             return _reloading_function(fn_or_seq_or_bool)
         elif (isinstance(fn_or_seq_or_bool, Iterable) or
@@ -228,6 +232,16 @@ def get_loop_object(loop_frame_info: inspect.FrameInfo,
                or getattr(node, "lineno", None) == loop_frame_info.lineno):
                 candidates.append(node)
 
+    if len(candidates) == 0 and loop_id is None:
+        raise Exception("Reloading used outside the context of a loop.")
+    elif len(candidates) == 0 and loop_id:
+        raise ReloadingException(
+            f'Unable to reload loop initially defined at line '
+            f'{loop_frame_info.lineno} '
+            f'in file "{loop_frame_info.filename}". '
+            'The loop might have been removed.'
+        )
+
     # Select the candidate node which is closest to function_frame_info
     def sorting_function(candidate):
         return abs(candidate.lineno - loop_frame_info.lineno)
@@ -241,7 +255,7 @@ def get_loop_object(loop_frame_info: inspect.FrameInfo,
     elif isinstance(candidate, ast.While):
         assert isinstance(candidate.test, ast.Call)
         return WhileLoop(loop_node_ast, candidate.test, get_loop_id(candidate))
-    raise Exception("Unable to find reloading loop node.")
+    raise ReloadingException("No loop node found.")
 
 
 def get_loop_id(ast_node: Union[ast.For, ast.While]) -> str:
@@ -264,7 +278,7 @@ def get_loop_code(loop_frame_info: inspect.FrameInfo,
             return get_loop_object(
                 loop_frame_info, reloaded_file_ast, loop_id=loop_id
             )
-        except LookupError:
+        except (LookupError, ReloadingException):
             handle_exception(filepath)
 
 
@@ -278,7 +292,7 @@ def handle_exception(filepath: str):
 
     if sys.stdin.isatty():
         print(
-            f"An error occurred. Please edit the file '{filepath}' to fix"
+            f"An error occurred. Please edit the file '{filepath}' to fix "
             "the issue and press return to continue or Ctrl+C to exit."
         )
         try:
@@ -421,9 +435,9 @@ def _reloading_loop(seq: Union[Iterable, bool]) -> Iterable:
         variables = ", ".join(
                     f'"{k}"' for k in loop_frame_info.frame.f_locals.keys())
         log.warning(f"Variable(s) {variables} in reloaded loop were not "
-                    "exported to the scope which called the reloaded loop at "
-                    f'line {loop_frame_info.lineno} in file '
-                    f'"{loop_frame_info.filename}".')
+                    "exported to the scope which called the reloaded loop "
+                    f'initially defined at line {loop_frame_info.lineno} in '
+                    f'file "{loop_frame_info.filename}".')
     return []
 
 
@@ -459,8 +473,7 @@ def strip_reloading_decorator(function_with_decorator: ast.FunctionDef):
 
 def isolate_function_def(function_frame_info: inspect.FrameInfo,
                          function: Callable,
-                         reloaded_file_ast: ast.Module) -> Union[None,
-                                                                 ast.Module]:
+                         reloaded_file_ast: ast.Module) -> ast.Module:
     """
     Traverse AST for the entire reloaded file in a search for the
     function (minus the reloading decorator) which is reloaded.
@@ -497,29 +510,23 @@ def isolate_function_def(function_frame_info: inspect.FrameInfo,
         function_node_ast.body = [function_node]
         return function_node_ast
     else:
-        log.error(f'Unable to reload function "{function_name}" with '
-                  f'in file {function_frame_info.filename}. '
-                  'The function might have been renamed or the '
-                  'decorator might have been removed.')
-    return None
-
-
-def get_function_def_code(function_frame_info: inspect.FrameInfo,
-                          function: Callable) -> Union[None, ast.Module]:
-    reloaded_file_ast: ast.Module = parse_file_until_successful(
-                                        function_frame_info.filename)
-    return isolate_function_def(function_frame_info,
-                                function,
-                                reloaded_file_ast)
+        raise ReloadingException(
+            f'Unable to reload function "{function_name}" '
+            f'in file "{function_frame_info.filename}". '
+            'The function might have been renamed or the '
+            'decorator might have been removed.'
+        )
 
 
 def get_reloaded_function(caller_globals: Dict[str, Any],
                           caller_locals: Dict[str, Any],
                           function_frame_info: inspect.FrameInfo,
-                          function: Callable) -> Union[None, Callable]:
-    function_ast = get_function_def_code(function_frame_info, function)
-    if function_ast is None:
-        return None
+                          function: Callable) -> Callable:
+    reloaded_file_ast: ast.Module = parse_file_until_successful(
+                                        function_frame_info.filename)
+    function_ast = isolate_function_def(function_frame_info,
+                                        function,
+                                        reloaded_file_ast)
     # Copy locals to avoid exec overwriting the decorated function with the new
     # undecorated function.
     caller_locals_copy = caller_locals.copy()
@@ -557,20 +564,14 @@ def _reloading_function(function: Callable) -> Callable:
             log.info(f'Function "{function.__name__}" at line '
                      f'{function_frame_info.lineno} '
                      f'of file "{filepath}" has been reloaded.')
-            rfunction = (
-                get_reloaded_function(caller_globals,
-                                      caller_locals,
-                                      function_frame_info,
-                                      function)
-                or rfunction
-            )
+            rfunction = get_reloaded_function(caller_globals,
+                                              caller_locals,
+                                              function_frame_info,
+                                              function)
             file_stat = os.stat(filepath).st_mtime_ns
         i += 1
         while True:
             try:
-                assert rfunction is not None, (
-                    'Unable to load function "{function.__name__}" at line '
-                    f'{function_frame_info.lineno} of file "{filepath}".')
                 result = rfunction(*args, **kwargs)
                 return result
             except Exception:
