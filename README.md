@@ -61,10 +61,27 @@ for _ in reloading():
     pass
 ```
 
+## Known Issus
+
+On Python version less than 3.13 it is not possible to properly export the local variables from a loop to parent locals. The following example demonstrates this:
+```python
+from reloading import reloading
+
+def function():
+    i = 0
+    while reloading(i < 10):
+        i += 1
+    print(i)
+
+function() # Prints 0. Not 10 as expected.
+```
+A warning is emitted when the issue arises: `WARNING:reloading:Variable(s) "i" in reloaded loop were not exported to the scope which called the reloaded loop at line...`.
+
 ## Lint, Type Check and Testing
 
 Run:
 ```
+$ pip install -e ".[development]"
 $ flake8
 $ pyright
 $ python -m unittest
