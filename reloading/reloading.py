@@ -215,7 +215,7 @@ def get_loop_object(loop_frame_info: inspect.FrameInfo,
     Traverse AST for the entire reloaded file in a search for the
     loop which is reloaded.
     """
-    candidates = []
+    candidates: List[Union[ast.For, ast.While]] = []
     for node in ast.walk(reloaded_file_ast):
         if isinstance(node, ast.For) and isinstance(node.iter, ast.Call):
             if getattr(node.iter.func, "id") == "reloading" and (
@@ -496,6 +496,11 @@ def isolate_function_def(function_frame_info: inspect.FrameInfo,
         function_node_ast = deepcopy(reloaded_file_ast)
         function_node_ast.body = [function_node]
         return function_node_ast
+    else:
+        log.error(f'Unable to reload function "{function_name}" with '
+                  f'in file {function_frame_info.filename}. '
+                  'The function might have been renamed or the '
+                  'decorator might have been removed.')
     return None
 
 
@@ -539,34 +544,34 @@ def _reloading_function(function: Callable) -> Callable:
     caller_locals = function_frame_info.frame.f_locals
 
     file_stat: int = os.stat(filepath).st_mtime_ns
-
-    # crutch to use dict as python2 doesn't support nonlocal
-    state = {
-        "function": get_reloaded_function(caller_globals,
-                                          caller_locals,
-                                          function_frame_info,
-                                          function),
-        "reloads": 0,
-    }
+    rfunction = get_reloaded_function(caller_globals,
+                                      caller_locals,
+                                      function_frame_info,
+                                      function)
+    i: int = 0
 
     def wrapped(*args, **kwargs):
-        nonlocal file_stat
+        nonlocal file_stat, function, rfunction, i
         # Reload code if possibly modified
         if file_stat != os.stat(filepath).st_mtime_ns:
-            log.info(f'Function at line {function_frame_info.lineno} '
+            log.info(f'Function "{function.__name__}" at line '
+                     f'{function_frame_info.lineno} '
                      f'of file "{filepath}" has been reloaded.')
-            state["function"] = (
+            rfunction = (
                 get_reloaded_function(caller_globals,
                                       caller_locals,
                                       function_frame_info,
                                       function)
-                or state["function"]
+                or rfunction
             )
             file_stat = os.stat(filepath).st_mtime_ns
-        state["reloads"] += 1
+        i += 1
         while True:
             try:
-                result = state["function"](*args, **kwargs)
+                assert rfunction is not None, (
+                    'Unable to load function "{function.__name__}" at line '
+                    f'{function_frame_info.lineno} of file "{filepath}".')
+                result = rfunction(*args, **kwargs)
                 return result
             except Exception:
                 handle_exception(filepath)
