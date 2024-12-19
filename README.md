@@ -16,6 +16,10 @@ A Python utility to reload a function or loop body from source on each iteration
 ```
 pip install git+https://github.com/nneskildsf/reloading.git
 ```
+or if you do not have Git
+```
+pip install https://github.com/nneskildsf/reloading/archive/refs/heads/master.zip
+```
 
 ## Usage
 

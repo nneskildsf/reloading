@@ -1,0 +1,2 @@
+# git-archive: ignore .gitignore, .gitattributes, .github/ etc. 
+.git* export-ignore
