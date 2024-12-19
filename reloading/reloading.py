@@ -417,7 +417,7 @@ def _reloading_loop(seq: Union[Iterable, bool]) -> Iterable:
         # print(i)
         loop_caller_frame: inspect.FrameInfo = stack[3]
         loop_caller_frame.frame.f_locals.update(loop_frame_info.frame.f_locals)
-    else:
+    elif len(stack) > 3:
         variables = ", ".join(
                     f'"{k}"' for k in loop_frame_info.frame.f_locals.keys())
         log.warning(f"Variable(s) {variables} in reloaded loop were not "
