@@ -87,12 +87,13 @@ class TestReloadingForLoopWithoutChanges(unittest.TestCase):
 class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
     def test_no_argument(self):
         i = 0
-        # reloading() returns an empty sequence
         while reloading():
             i += 1
+            if i == 10:
+                break
 
         if sys.version_info.major >= 3 and sys.version_info.minor >= 13:
-            self.assertEqual(i, 0)
+            self.assertEqual(i, 10)
 
     def test_false(self):
         i = 0

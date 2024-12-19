@@ -13,7 +13,6 @@ from typing import (Optional,
                     overload)
 from itertools import chain
 from functools import partial, update_wrapper
-from copy import deepcopy
 import logging
 
 log = logging.getLogger("reloading")
@@ -167,14 +166,26 @@ def parse_file_until_successful(filepath: str) -> ast.Module:
             source = load_file(filepath)
 
 
+break_ast = ast.parse('raise Exception("break")').body
+continue_ast = ast.parse('raise Exception("continue")').body
+
+
+class ReplaceBreakContineWithExceptions(ast.NodeTransformer):
+    def visit_Break(self, node):
+        return break_ast
+
+    def visit_Continue(self, node):
+        return continue_ast
+
+
 def replace_break_continue(ast_module: ast.Module):
     # Replace "break" and "continue" with custom exceptions.
     # Otherwise SyntaxError is raised because these instructions
     # are called outside a loop.
-    code = ast.unparse(ast_module)
-    code = code.replace("break", "raise Exception('break')")
-    code = code.replace("continue", "raise Exception('continue')")
-    return compile(code, filename="", mode="exec")
+    transformer = ReplaceBreakContineWithExceptions()
+    transformed_ast_module = transformer.visit(ast_module)
+    ast.fix_missing_locations(transformed_ast_module)
+    return compile(transformed_ast_module, filename="", mode="exec")
 
 
 class WhileLoop:
@@ -186,6 +197,13 @@ class WhileLoop:
         self.test: ast.Call = test
         self.id: str = id
         self.compiled_body = replace_break_continue(self.ast)
+        # If no argument was supplied, then loop forever
+        ast_condition = ast.Expression(body=ast.Constant(True))
+        if len(test.args) > 0:
+            # Create expression to evaluate condition
+            ast_condition = ast.Expression(body=test.args[0])
+        ast.fix_missing_locations(ast_condition)
+        self.condition = compile(ast_condition, filename="", mode="eval")
 
 
 class ForLoop:
@@ -242,9 +260,7 @@ def get_loop_object(loop_frame_info: inspect.FrameInfo,
     def sorting_function(candidate):
         return abs(candidate.lineno - loop_frame_info.lineno)
     candidate = min(candidates, key=sorting_function)
-    # Use reloaded_file_ast as template.
-    loop_node_ast = deepcopy(reloaded_file_ast)
-    loop_node_ast.body = candidate.body
+    loop_node_ast = ast.Module(candidate.body, type_ignores=[])
     if isinstance(candidate, ast.For):
         assert isinstance(candidate.target, (ast.Name, ast.Tuple, ast.List))
         return ForLoop(loop_node_ast, candidate.target, get_loop_id(candidate))
@@ -311,7 +327,10 @@ def execute_for_loop(seq: Iterable, loop_frame_info: inspect.FrameInfo):
     caller_globals: Dict[str, Any] = loop_frame_info.frame.f_globals
     caller_locals: Dict[str, Any] = loop_frame_info.frame.f_locals
 
-    file_stat: int = os.stat(filepath).st_mtime_ns
+    # Initialize variables
+    file_stat: int = 0
+    vacant_variable_name: str = ""
+    assign_compiled = compile('', filename='', mode='exec')
     for_loop = get_loop_code(
         loop_frame_info, loop_id=None
     )
@@ -319,22 +338,29 @@ def execute_for_loop(seq: Iterable, loop_frame_info: inspect.FrameInfo):
     for i, iteration_variable_values in enumerate(seq):
         # Reload code if possibly modified
         if file_stat != os.stat(filepath).st_mtime_ns:
-            log.info(f'For loop at line {loop_frame_info.lineno} of file '
-                     f'"{filepath}" has been reloaded.')
+            if i > 0:
+                log.info(f'For loop at line {loop_frame_info.lineno} of file '
+                         f'"{filepath}" has been reloaded.')
             for_loop = get_loop_code(
                 loop_frame_info, loop_id=for_loop.id
             )
+            assert isinstance(for_loop, ForLoop)
             file_stat = os.stat(filepath).st_mtime_ns
-        assert isinstance(for_loop, ForLoop)
-        # Make up a name for a variable which is not already present in
-        # the global or local namespace.
-        vacant_variable_name: str = unique_name(chain(caller_locals.keys(),
-                                                      caller_globals.keys()))
+            # Make up a name for a variable which is not already present in
+            # the global or local namespace.
+            vacant_variable_name = unique_name(
+                chain(caller_locals.keys(), caller_globals.keys())
+            )
+            # Reassign variable values from vacant variable in local scope
+            assign = ast.Module([
+                ast.Assign(targets=[for_loop.iteration_variables],
+                           value=ast.Name(vacant_variable_name, ast.Load()))],
+                           type_ignores=[])
+            ast.fix_missing_locations(assign)
+            assign_compiled = compile(assign, filename='', mode='exec')
         # Store iteration variable values in vacant variable in local scope
         caller_locals[vacant_variable_name] = iteration_variable_values
-        # Reassign variable values from vacant variable in local scope
-        exec(for_loop.iteration_variables_str + " = " + vacant_variable_name,
-             caller_globals, caller_locals)
+        exec(assign_compiled, caller_globals, caller_locals)
         # Clean up namespace
         del caller_locals[vacant_variable_name]
         try:
@@ -362,15 +388,7 @@ def execute_while_loop(loop_frame_info: inspect.FrameInfo):
     )
 
     def condition(while_loop):
-        test = ast.unparse(while_loop.test).replace("reloading", "")
-        # Make up a name for a variable which is not already present in
-        # the global or local namespace.
-        vacant_variable_name: str = unique_name(chain(caller_locals.keys(),
-                                                      caller_globals.keys()))
-        exec(vacant_variable_name+" = "+test, caller_globals, caller_locals)
-        result = deepcopy(caller_locals[vacant_variable_name])
-        del caller_locals[vacant_variable_name]
-        return result
+        return eval(while_loop.condition, caller_globals, caller_locals)
 
     i = 0
     while condition(while_loop):
@@ -453,16 +471,14 @@ def strip_reloading_decorator(function_with_decorator: ast.FunctionDef):
     Remove the 'reloading' decorator and all decorators before it.
     """
     # Create shorthand for readability
-    fwd = function_with_decorator
-    # Find decorators
+    fwod = function_with_decorator
+    # Find decorator names
     decorator_names = [get_decorator_name_or_none(decorator)
                        for decorator
-                       in fwd.decorator_list]
-    # Find index of "reloading" decorator
-    reloading_index = decorator_names.index("reloading")
-    # Use function with decorator as template
-    fwod = deepcopy(fwd)
-    fwod.decorator_list = fwd.decorator_list[reloading_index + 1:]
+                       in fwod.decorator_list]
+    fwod.decorator_list = [decorator for decorator, name
+                           in zip(fwod.decorator_list, decorator_names)
+                           if name != "reloading"]
     function_without_decorator = fwod
     return function_without_decorator
 
@@ -502,8 +518,7 @@ def isolate_function_def(function_frame_info: inspect.FrameInfo,
             return abs(candidate.lineno - function_frame_info.lineno)
         candidate = min(candidates, key=sorting_function)
         function_node = strip_reloading_decorator(candidate)
-        function_node_ast = deepcopy(reloaded_file_ast)
-        function_node_ast.body = [function_node]
+        function_node_ast = ast.Module([function_node], type_ignores=[])
         return function_node_ast
     else:
         raise ReloadingException(
