@@ -83,6 +83,21 @@ class TestReloadingForLoopWithoutChanges(unittest.TestCase):
         if sys.version_info.major >= 3 and sys.version_info.minor >= 13:
             self.assertEqual(i, 0)
 
+    def test_use_outside_loop(self):
+        with self.assertRaises(Exception):
+            reloading(range(10))
+
+    def test_continue(self):
+        j = 0
+        for i in range(10):
+            i += 1
+            if i > 5:
+                continue
+            j = i
+
+        self.assertEqual(i, 10)
+        self.assertEqual(j, 5)
+
 
 class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
     def test_no_argument(self):
@@ -134,6 +149,22 @@ class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
             i += 1
 
         self.assertEqual(i, 10)
+
+    def test_use_outside_loop(self):
+        with self.assertRaises(Exception):
+            reloading(True)
+
+    def test_continue(self):
+        i = 0
+        j = 0
+        while i < 10:
+            i += 1
+            if i > 5:
+                continue
+            j = i
+
+        self.assertEqual(i, 10)
+        self.assertEqual(j, 5)
 
 
 class TestReloadingFunctionWithoutChanges(unittest.TestCase):
@@ -331,6 +362,28 @@ for i in range(1):
         self.assertIn("AB", stdout)
         self.assertIn("AC", stdout)
 
+    def test_function_in_loop(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+def f():
+    return 'f'
+
+for i in reloading(range(10)):
+    print(f()+'g')
+    sleep(0.2)
+"""
+        stdout, stderr = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("'f'", "'F'").
+            replace("'g'", "'G'"),
+        )
+
+        self.assertIn("fg", stdout)
+        self.assertIn("fG", stdout)
+        self.assertNotIn("FG", stdout)
+
 
 class TestReloadingWhileLoopWithChanges(unittest.TestCase):
     def test_changing_source_loop(self):
@@ -350,6 +403,30 @@ while reloading(i < 100):
         )
         max_i = stdout.strip().split("\n")[-1]
         self.assertEqual(max_i, "9")
+
+    def test_function_in_loop(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+def f():
+    return 'f'
+
+i = 0
+while reloading(i<10):
+    print(f()+'g')
+    sleep(0.2)
+    i += 1
+"""
+        stdout, stderr = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("'f'", "'F'").
+            replace("'g'", "'G'"),
+        )
+
+        self.assertIn("fg", stdout)
+        self.assertIn("fG", stdout)
+        self.assertNotIn("FG", stdout)
 
 
 class TestReloadingFunctionsWithChanges(unittest.TestCase):
@@ -420,6 +497,79 @@ for i in range(10):
         self.assertIn("AB", stdout)
         self.assertIn("AC", stdout)
 
+    def test_multiple_function(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+@reloading
+def f():
+    return 'f'
+
+@reloading
+def g():
+    return 'g'
+
+for i in range(10):
+    print(f()+g())
+    sleep(0.2)
+"""
+        stdout, _ = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("'f'", "'F'").
+            replace("'g'", "'G'"),
+        )
+
+        self.assertIn("fg", stdout)
+        self.assertIn("FG", stdout)
+
+
+class TestReloadingMixedWithChanges(unittest.TestCase):
+    def test_function_for_loop(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+@reloading
+def f():
+    return 'f'
+
+for i in reloading(range(10)):
+    print(f()+'g')
+    sleep(0.2)
+"""
+        stdout, stderr = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("'f'", "'F'").
+            replace("'g'", "'G'"),
+        )
+
+        self.assertIn("fg", stdout)
+        self.assertIn("FG", stdout)
+
+    def test_function_while_loop(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+@reloading
+def f():
+    return 'f'
+
+i = 0
+while reloading(i<10):
+    print(f()+'g')
+    sleep(0.2)
+    i += 1
+"""
+        stdout, stderr = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("'f'", "'F'").
+            replace("'g'", "'G'"),
+        )
+
+        self.assertIn("fg", stdout)
+        self.assertIn("FG", stdout)
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(verbosity=2)
