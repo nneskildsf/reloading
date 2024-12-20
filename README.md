@@ -1,13 +1,16 @@
 This is a fork of https://github.com/julvo/reloading with the following improvements:
 * Typing (pyright compliance)
-* Linting (flak8 compliance)
+* Linting (flak8e compliance)
 * Expanded test suite
 * Supports multiple invocations of `reloading` in a single file
 * Supports `while` loop
+* Supports `continue` and `break` in loops
+* Improved performance (Reloaded `while` and `for` loops are only about 40 times slower than regular)
 * Preserves function signature for functions decorated with `@reloading`
 * CI with Github Actions workflow
 * Reload code only if source code file has been changed
 * With Python 3.13: Exports locals of reloaded loop to parent locals
+* Improved error handling
 
 # Reloading
 A Python utility to reload a function or loop body from source on each iteration without losing state.
