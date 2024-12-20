@@ -34,6 +34,10 @@ class NoIterPartial(partial):
         )
 
 
+def is_interactive():
+    return hasattr(sys, "ps1")
+
+
 class ReloadingException(Exception):
     pass
 
@@ -81,6 +85,9 @@ def reloading(fn_or_seq_or_bool: Optional[
             A function, iterator or condition which should be reloaded from
             source before each invocation or iteration, respectively.
     """
+    if is_interactive():
+        raise Exception('Reloading cannot be used in interactive '
+                        'prompt or IPython.')
     if fn_or_seq_or_bool is not None:
         if isinstance(fn_or_seq_or_bool, Callable):
             return _reloading_function(fn_or_seq_or_bool)
