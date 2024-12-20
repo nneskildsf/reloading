@@ -433,6 +433,8 @@ def _reloading_loop(seq: Union[Iterable, bool]) -> Iterable:
     assert stack[1].function == "reloading"
     # The third element is the loop which called reloading.
     loop_frame_info: inspect.FrameInfo = stack[2]
+    # Replace filename with Jupyter Notebook file name
+    # if we are in a Jupyter Notebook session.
     loop_object = get_loop_code(
         loop_frame_info, loop_id=None
     )
@@ -442,6 +444,7 @@ def _reloading_loop(seq: Union[Iterable, bool]) -> Iterable:
         execute_for_loop(seq, loop_frame_info)
     elif isinstance(loop_object, WhileLoop):
         execute_while_loop(loop_frame_info)
+
     # If there is a third element, then it is the scope which called the loop.
     # It is only possible to modify variables in this scope since Python 3.13.
     if (len(stack) > 3 and
@@ -485,9 +488,9 @@ def strip_reloading_decorator(function_with_decorator: ast.FunctionDef):
     decorator_names = [get_decorator_name_or_none(decorator)
                        for decorator
                        in fwod.decorator_list]
-    fwod.decorator_list = [decorator for decorator, name
-                           in zip(fwod.decorator_list, decorator_names)
-                           if name != "reloading"]
+    # Find index of "reloading" decorator
+    reloading_index = decorator_names.index("reloading")
+    fwod.decorator_list = fwod.decorator_list[reloading_index + 1:]
     function_without_decorator = fwod
     return function_without_decorator
 

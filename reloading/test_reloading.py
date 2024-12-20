@@ -173,6 +173,19 @@ class TestReloadingFunctionWithoutChanges(unittest.TestCase):
         import inspect
         self.assertEqual(str(inspect.signature(some_func)), "(a, b, c)")
 
+    def test_decorated_function(self):
+        def decorator(f):
+            def wrap():
+                return "<"+str(f())+">"
+            return wrap
+
+        @decorator
+        @reloading
+        def f():
+            return 2
+
+        self.assertEqual(f(), "<2>")
+
 
 class TestReloadingForLoopWithChanges(unittest.TestCase):
     def test_changing_source_loop(self):
