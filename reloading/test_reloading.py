@@ -88,6 +88,7 @@ class TestReloadingForLoopWithoutChanges(unittest.TestCase):
             reloading(range(10))
 
     def test_continue(self):
+        i = 0
         j = 0
         for i in range(10):
             i += 1
