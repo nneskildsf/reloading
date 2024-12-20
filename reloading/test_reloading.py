@@ -571,5 +571,6 @@ while reloading(i<10):
         self.assertIn("fg", stdout)
         self.assertIn("FG", stdout)
 
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
