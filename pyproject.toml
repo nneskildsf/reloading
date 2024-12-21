@@ -5,7 +5,7 @@ build-backend = "flit_core.buildapi"
 [project]
 name = "reloading"
 dependencies = []
-requires-python = ">=3.6"
+requires-python = ">=3.5"
 authors = [{name = "Julian Vossen", email = "pypi@julianvossen.de"}]
 maintainers = [{name = "Eskild Schroll-Fleischer", email = "eyfl@novonordisk.com"}]
 version="1.2.0"
