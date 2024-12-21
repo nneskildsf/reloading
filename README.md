@@ -13,15 +13,13 @@ This fork of reloading supports Python 3.6+.
 
 ## Supported Features
 - Reload functions, `for` loops and `while` loops
+- Works in Jupyter Notebook
 - `break` and `continue` in loops
 - Multiple reloading functions and loops in one file
 - Reloaded functions preserve their original call signature
 - Only reload source code when changed for faster performance
 - Comprehensive exceptions and logging to let you know of errors
 - Exports locals of reloaded loops to parent locals (Python 3.13 and newer)
-
-## Not Supported
-- Use of reloading in Jupyter Notebooks and IPython
 
 ## Usage
 

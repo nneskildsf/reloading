@@ -12,30 +12,10 @@ from typing import (Optional,
                     List,
                     overload)
 from itertools import chain
-from functools import partial, update_wrapper
 import logging
 
 log = logging.getLogger("reloading")
 logging.basicConfig(level=logging.INFO)
-
-
-class NoIterPartial(partial):
-    """
-    Make our own partial in case someone wants to use reloading as an
-    iterator. Without any arguments they would get a partial back
-    because a call without an iterator argument is assumed to be a decorator.
-    Getting a "TypeError: 'functools.partial' object is not iterable"
-    is not really descriptive.
-    Hence we overwrite the iter to make sure that the error makes sense.
-    """
-    def __iter__(self):
-        raise TypeError(
-            "Nothing to iterate over. Please pass an iterable to reloading."
-        )
-
-
-def is_interactive():
-    return hasattr(sys, "ps1")
 
 
 class ReloadingException(Exception):
@@ -85,9 +65,6 @@ def reloading(fn_or_seq_or_bool: Optional[
             A function, iterator or condition which should be reloaded from
             source before each invocation or iteration, respectively.
     """
-    if is_interactive():
-        raise Exception('Reloading cannot be used in interactive '
-                        'prompt or IPython.')
     if fn_or_seq_or_bool is not None:
         if isinstance(fn_or_seq_or_bool, Callable):
             return _reloading_function(fn_or_seq_or_bool)
@@ -101,10 +78,6 @@ def reloading(fn_or_seq_or_bool: Optional[
             )
     else:
         return _reloading_loop(iter(int, 1))
-    # return this function with the keyword arguments partialed in,
-    # so that the return value can be used as a decorator
-    decorator = update_wrapper(NoIterPartial(reloading), reloading)
-    return decorator
 
 
 def unique_name(seq: chain) -> str:
@@ -151,9 +124,25 @@ def load_file(filename: str) -> str:
     Read contents of file containing reloading code.
     Handle case of file appearing empty on read.
     """
+    src = ""
     while True:
         with open(filename, "r") as f:
-            src = f.read()
+            if filename.endswith(".ipynb"):
+                import nbformat
+                # Read Jupyter Notebook v. 4
+                notebook = nbformat.read(f, 4)
+                # Create list of all code blocks
+                blocks = [cell.source for cell in notebook.cells
+                          if cell["cell_type"] == "code"]
+                # Join all blocks (a block is a multiline string of code)
+                jupyter_code = "\n".join(blocks)
+                # Jupyter has a magic meaning of !. Lines which start
+                # with "!" are not Python code.
+                lines = [line.replace("!", "# !", 1) if line.startswith("!")
+                         else line for line in jupyter_code.split("\n")]
+                src = "\n".join(lines)
+            else:
+                src = f.read()
         if len(src):
             return src + "\n"
 
@@ -243,12 +232,16 @@ def get_loop_object(loop_frame_info: inspect.FrameInfo,
     candidates: List[Union[ast.For, ast.While]] = []
     for node in ast.walk(reloaded_file_ast):
         if isinstance(node, ast.For) and isinstance(node.iter, ast.Call):
-            if getattr(node.iter.func, "id") == "reloading" and (
+            # Handle "for reloading(iter)" as well as
+            # "for reloading.reloading(iter)".
+            if (getattr(node.iter.func, "id", "") == "reloading" or
+               getattr(node.iter.func, "attr", "") == "reloading") and (
                (loop_id is not None and loop_id == get_loop_id(node))
                or getattr(node, "lineno", None) == loop_frame_info.lineno):
                 candidates.append(node)
         if isinstance(node, ast.While) and isinstance(node.test, ast.Call):
-            if getattr(node.test.func, "id") == "reloading" and (
+            if (getattr(node.test.func, "id", "") == "reloading" or
+               getattr(node.test.func, "attr", "") == "reloading") and (
                (loop_id is not None and loop_id == get_loop_id(node))
                or getattr(node, "lineno", None) == loop_frame_info.lineno):
                 candidates.append(node)
@@ -289,8 +282,8 @@ def get_loop_id(ast_node: Union[ast.For, ast.While]) -> str:
 
 
 def get_loop_code(loop_frame_info: inspect.FrameInfo,
-                  loop_id: Union[None, str]) -> Union[WhileLoop, ForLoop]:
-    filename: str = loop_frame_info.filename
+                  loop_id: Union[None, str],
+                  filename: str) -> Union[WhileLoop, ForLoop]:
     while True:
         reloaded_file_ast: ast.Module = parse_file_until_successful(filename)
         try:
@@ -329,17 +322,18 @@ def handle_exception(filename: str):
         )
 
 
-def execute_for_loop(seq: Iterable, loop_frame_info: inspect.FrameInfo):
-    filename = loop_frame_info.filename
+def execute_for_loop(seq: Iterable,
+                     loop_frame_info: inspect.FrameInfo,
+                     filename: str):
     caller_globals: Dict[str, Any] = loop_frame_info.frame.f_globals
     caller_locals: Dict[str, Any] = loop_frame_info.frame.f_locals
 
     # Initialize variables
     file_stat: int = 0
     vacant_variable_name: str = ""
-    assign_compiled = compile('', filename='', mode='exec')
+    assign_compiled = compile("", filename="", mode="exec")
     for_loop = get_loop_code(
-        loop_frame_info, loop_id=None
+        loop_frame_info, loop_id=None, filename=filename
     )
 
     for i, iteration_variable_values in enumerate(seq):
@@ -350,7 +344,7 @@ def execute_for_loop(seq: Iterable, loop_frame_info: inspect.FrameInfo):
                 log.info(f'For loop at line {loop_frame_info.lineno} of file '
                          f'"{filename}" has been reloaded.')
             for_loop = get_loop_code(
-                loop_frame_info, loop_id=for_loop.id
+                loop_frame_info, loop_id=for_loop.id, filename=filename
             )
             assert isinstance(for_loop, ForLoop)
             file_stat = file_stat_
@@ -385,14 +379,13 @@ def execute_for_loop(seq: Iterable, loop_frame_info: inspect.FrameInfo):
                 handle_exception(filename)
 
 
-def execute_while_loop(loop_frame_info: inspect.FrameInfo):
-    filename = loop_frame_info.filename
+def execute_while_loop(loop_frame_info: inspect.FrameInfo, filename: str):
     caller_globals: Dict[str, Any] = loop_frame_info.frame.f_globals
     caller_locals: Dict[str, Any] = loop_frame_info.frame.f_locals
 
     file_stat: int = os.stat(filename).st_mtime_ns
     while_loop = get_loop_code(
-        loop_frame_info, loop_id=None
+        loop_frame_info, loop_id=None, filename=filename
     )
 
     def condition(while_loop):
@@ -407,7 +400,7 @@ def execute_while_loop(loop_frame_info: inspect.FrameInfo):
             log.info(f'While loop at line {loop_frame_info.lineno} of file '
                      f'"{filename}" has been reloaded.')
             while_loop = get_loop_code(
-                loop_frame_info, loop_id=while_loop.id
+                loop_frame_info, loop_id=while_loop.id, filename=filename
             )
             file_stat = file_stat_
         try:
@@ -433,20 +426,27 @@ def _reloading_loop(seq: Union[Iterable, bool]) -> Iterable:
     assert stack[1].function == "reloading"
     # The third element is the loop which called reloading.
     loop_frame_info: inspect.FrameInfo = stack[2]
+    filename: str = loop_frame_info.filename
+    # If we are running in Jupyter Notebook then the filename
+    # of the current notebook is stored in the __session__ variable.
+    if ".ipynb" in loop_frame_info.frame.f_globals.get("__session__", ""):
+        filename = str(loop_frame_info.frame.f_globals.get("__session__"))
     # Replace filename with Jupyter Notebook file name
     # if we are in a Jupyter Notebook session.
     loop_object = get_loop_code(
-        loop_frame_info, loop_id=None
+        loop_frame_info, loop_id=None, filename=filename
     )
 
     if isinstance(loop_object, ForLoop):
         assert isinstance(seq, Iterable)
-        execute_for_loop(seq, loop_frame_info)
+        execute_for_loop(seq, loop_frame_info, filename)
     elif isinstance(loop_object, WhileLoop):
-        execute_while_loop(loop_frame_info)
+        execute_while_loop(loop_frame_info, filename)
 
     # If there is a third element, then it is the scope which called the loop.
-    # It is only possible to modify variables in this scope since Python 3.13.
+    # If this is the main scope, then all is good. Howver, if we are in a
+    # scope within the main scope then it is only possible to modify
+    # variables in this scope since Python 3.13.
     if (len(stack) > 3 and
        sys.version_info.major >= 3 and
        sys.version_info.minor >= 13):
@@ -457,19 +457,22 @@ def _reloading_loop(seq: Union[Iterable, bool]) -> Iterable:
         # print(i)
         loop_caller_frame: inspect.FrameInfo = stack[3]
         loop_caller_frame.frame.f_locals.update(loop_frame_info.frame.f_locals)
-    elif len(stack) > 3:
+    elif (len(stack) > 3 and
+          loop_frame_info.frame.f_locals.get("__name__", "") != "__main__"):
         variables = ", ".join(
                     f'"{k}"' for k in loop_frame_info.frame.f_locals.keys())
         log.warning(f"Variable(s) {variables} in reloaded loop were not "
                     "exported to the scope which called the reloaded loop "
                     f'initially defined at line {loop_frame_info.lineno} in '
-                    f'file "{loop_frame_info.filename}".')
+                    f'file "{filename}".')
     return []
 
 
 def get_decorator_name_or_none(decorator_node):
     if hasattr(decorator_node, "id"):
         return decorator_node.id
+    elif hasattr(decorator_node, "attr"):
+        return decorator_node.attr
     elif hasattr(decorator_node.func, "id"):
         return decorator_node.func.id
     elif hasattr(decorator_node.func.value, "id"):
@@ -544,9 +547,10 @@ def isolate_function_def(function_frame_info: inspect.FrameInfo,
 def get_reloaded_function(caller_globals: Dict[str, Any],
                           caller_locals: Dict[str, Any],
                           function_frame_info: inspect.FrameInfo,
-                          function: Callable) -> Callable:
+                          function: Callable,
+                          filename: str) -> Callable:
     reloaded_file_ast: ast.Module = parse_file_until_successful(
-                                        function_frame_info.filename)
+                                        filename)
     function_ast = isolate_function_def(function_frame_info,
                                         function,
                                         reloaded_file_ast)
@@ -569,6 +573,10 @@ def _reloading_function(function: Callable) -> Callable:
     # The third element is the loop which called reloading.
     function_frame_info: inspect.FrameInfo = stack[2]
     filename: str = function_frame_info.filename
+    # If we are running in Jupyter Notebook then the filename
+    # of the current notebook is stored in the __session__ variable.
+    if ".ipynb" in function_frame_info.frame.f_globals.get("__session__", ""):
+        filename = str(function_frame_info.frame.f_globals.get("__session__"))
 
     caller_globals = function_frame_info.frame.f_globals
     caller_locals = function_frame_info.frame.f_locals
@@ -577,7 +585,8 @@ def _reloading_function(function: Callable) -> Callable:
     rfunction = get_reloaded_function(caller_globals,
                                       caller_locals,
                                       function_frame_info,
-                                      function)
+                                      function,
+                                      filename)
     i: int = 0
 
     def wrapped(*args, **kwargs):
@@ -591,7 +600,8 @@ def _reloading_function(function: Callable) -> Callable:
             rfunction = get_reloaded_function(caller_globals,
                                               caller_locals,
                                               function_frame_info,
-                                              function)
+                                              function,
+                                              filename)
             file_stat = file_stat_
         i += 1
         while True:

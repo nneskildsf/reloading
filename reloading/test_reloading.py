@@ -57,6 +57,11 @@ class TestReloadingForLoopWithoutChanges(unittest.TestCase):
         for _ in reloading(range(10)):
             pass
 
+    def test_module_import(self):
+        import reloading
+        for _ in reloading.reloading(range(10)):
+            pass
+
     def test_range_body(self):
         i = 0
         for _ in reloading(range(10)):
@@ -146,10 +151,11 @@ class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
 
     def test_condition(self):
         i = 0
-        while i < 10:
+        while reloading(i < 10):
             i += 1
 
-        self.assertEqual(i, 10)
+        if sys.version_info.major >= 3 and sys.version_info.minor >= 13:
+            self.assertEqual(i, 10)
 
     def test_use_outside_loop(self):
         with self.assertRaises(Exception):
@@ -158,14 +164,21 @@ class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
     def test_continue(self):
         i = 0
         j = 0
-        while i < 10:
+        while reloading(i < 10):
             i += 1
             if i > 5:
                 continue
             j = i
 
-        self.assertEqual(i, 10)
-        self.assertEqual(j, 5)
+        if sys.version_info.major >= 3 and sys.version_info.minor >= 13:
+            self.assertEqual(i, 10)
+            self.assertEqual(j, 5)
+
+    def test_module_import(self):
+        import reloading
+        i = 0
+        while reloading.reloading(i < 10):
+            i += 1
 
 
 class TestReloadingFunctionWithoutChanges(unittest.TestCase):
@@ -176,6 +189,15 @@ class TestReloadingFunctionWithoutChanges(unittest.TestCase):
 
     def test_empty_function_run(self):
         @reloading
+        def function():
+            pass
+
+        function()
+
+    def test_module_import(self):
+        import reloading
+
+        @reloading.reloading
         def function():
             pass
 

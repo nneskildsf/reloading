@@ -35,6 +35,7 @@ DOWNLOAD = "https://github.com/nneskildsf/reloading/archive/refs/heads/master.zi
 
 [project.optional-dependencies]
 development = [
+  "nbformat",
   "flake8",
   "pyright",
   "build",
