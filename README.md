@@ -1,5 +1,7 @@
 # Reloading
 [![CI](https://github.com/nneskildsf/reloading/actions/workflows/CI.yml/badge.svg)](https://github.com/nneskildsf/reloading/actions/workflows/CI.yml)
+[![Checked with mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
+[![Linting: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/charliermarsh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 A Python utility to reload a function or loop body from source on each iteration without losing state.
 

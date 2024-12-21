@@ -28,8 +28,8 @@ def run_and_update_source(init_src, updated_src=None, update_after=0.5):
                 f.flush()
 
         try:
-            stdout, _ = proc.communicate(timeout=2)
-            stdout = stdout.decode("utf-8")
+            stdout_bytes, _ = proc.communicate(timeout=2)
+            stdout = stdout_bytes.decode("utf-8")
             has_error = False
         except Exception:
             stdout = ""

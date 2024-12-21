@@ -38,6 +38,8 @@ development = [
   "nbformat",
   "flake8",
   "pyright",
+  "mypy",
+  "ruff",
   "build",
 ]
 

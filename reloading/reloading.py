@@ -66,7 +66,7 @@ def reloading(fn_or_seq_or_bool: Optional[
             source before each invocation or iteration, respectively.
     """
     if fn_or_seq_or_bool is not None:
-        if isinstance(fn_or_seq_or_bool, Callable):
+        if callable(fn_or_seq_or_bool):
             return _reloading_function(fn_or_seq_or_bool)
         elif (isinstance(fn_or_seq_or_bool, Iterable) or
               isinstance(fn_or_seq_or_bool, bool)):
