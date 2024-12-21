@@ -7,21 +7,38 @@ on:
     branches: [ "master" ]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  test_2004:
+    name: Ubuntu 20.04 - Python ${{ matrix.python-version }}
+    runs-on: ubuntu-20.04
     strategy:
       matrix:
-        python-version: ["3.8.18", "3.9.20", "3.10.15", "3.11.11", "3.12.8", "3.13.1"]
+        python-version: ["3.6", "3.7"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: python -m pip install --upgrade pip
+        env:
+          PIP_TRUSTED_HOST: "pypi.python.org pypi.org files.pythonhosted.org"
       - name: Install reloading
-        run: pip install ".[development]"
+        run: python -m pip install .
+      - name: Test with unittest
+        run: python -m unittest
+  test_2204:
+    name: Ubuntu 22.04 - Python ${{ matrix.python-version }}
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install reloading
+        run: python -m pip install ".[development]"
       - name: Lint with flake8
         run: flake8
       - name: Type check with pyright
