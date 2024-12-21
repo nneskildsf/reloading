@@ -19,10 +19,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: python -m pip install --upgrade pip
       - name: Install reloading
-        run: pip install ".[development]"
+        run: python -m pip install ".[development]"
       - name: Lint with flake8
         run: flake8
       - name: Type check with pyright
@@ -41,10 +39,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: python -m pip install --upgrade pip
       - name: Install reloading
-        run: pip install ".[development]"
+        run: python -m pip install ".[development]"
       - name: Lint with flake8
         run: flake8
       - name: Type check with pyright
