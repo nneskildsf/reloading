@@ -187,6 +187,12 @@ class TestReloadingFunctionWithoutChanges(unittest.TestCase):
         def function():
             pass
 
+    def test_empty_function_wrapped(self):
+        def function():
+            pass
+
+        function = reloading(function)
+
     def test_empty_function_run(self):
         @reloading
         def function():
@@ -208,6 +214,13 @@ class TestReloadingFunctionWithoutChanges(unittest.TestCase):
         def function():
             return "result"
 
+        self.assertEqual(function(), "result")
+
+    def test_function_return_value_wrapped(self):
+        def function():
+            return "result"
+
+        function = reloading(function)
         self.assertEqual(function(), "result")
 
     def test_nested_function(self):
@@ -397,7 +410,7 @@ for i in reloading(range(10)):
     print(f()+'g')
     sleep(0.2)
 """
-        stdout, stderr = run_and_update_source(
+        stdout, _ = run_and_update_source(
             init_src=code,
             updated_src=code.replace("'f'", "'F'").
             replace("'g'", "'G'"),
@@ -441,7 +454,7 @@ while reloading(i<10):
     sleep(0.2)
     i += 1
 """
-        stdout, stderr = run_and_update_source(
+        stdout, _ = run_and_update_source(
             init_src=code,
             updated_src=code.replace("'f'", "'F'").
             replace("'g'", "'G'"),
@@ -546,22 +559,25 @@ for i in range(10):
         self.assertIn("fg", stdout)
         self.assertIn("FG", stdout)
 
-
-class TestReloadingMixedWithChanges(unittest.TestCase):
-    def test_function_for_loop(self):
+    def test_multiple_functions_not_decorated(self):
         code = """
 from reloading import reloading
 from time import sleep
 
-@reloading
 def f():
     return 'f'
 
-for i in reloading(range(10)):
-    print(f()+'g')
+def g():
+    return 'g'
+
+f = reloading(f)
+g = reloading(g)
+
+for i in range(10):
+    print(f()+g())
     sleep(0.2)
 """
-        stdout, stderr = run_and_update_source(
+        stdout, _ = run_and_update_source(
             init_src=code,
             updated_src=code.replace("'f'", "'F'").
             replace("'g'", "'G'"),
@@ -569,6 +585,49 @@ for i in reloading(range(10)):
 
         self.assertIn("fg", stdout)
         self.assertIn("FG", stdout)
+
+    def test_class_decorates_methods(self):
+        code = """
+from reloading import reloading
+from time import sleep
+
+def get_subclass_methods(cls):
+    methods = set(dir(cls(_get_subclass_methods=True)))
+    unique_methods = methods.difference(
+        *(dir(base()) for base in cls.__bases__)
+    )
+    return list(unique_methods)
+
+class ClassWhichMarksSubclassMethodsForReload:
+    def __init__(self, *args, **kwargs):
+        if (self.__class__.__name__ != super().__thisclass__.__name__
+            and not '_get_subclass_methods' in kwargs):
+            methods_of_subclass = get_subclass_methods(self.__class__)
+            for method in methods_of_subclass:
+                setattr(self.__class__, method,
+                        reloading(getattr(self.__class__, method)))
+    def f(self):
+        return 'f'
+
+class Subclass(ClassWhichMarksSubclassMethodsForReload):
+    def g(self):
+       return 'g'
+
+obj = Subclass()
+
+for i in range(10):
+    print(obj.f()+obj.g())
+    sleep(0.2)
+"""
+        stdout, _ = run_and_update_source(
+            init_src=code,
+            updated_src=code.replace("'f'", "'F'").
+            replace("'g'", "'G'"),
+        )
+
+        self.assertIn("fg", stdout)
+        self.assertIn("fG", stdout)
+        self.assertNotIn("FG", stdout)
 
     def test_function_while_loop(self):
         code = """
@@ -585,7 +644,7 @@ while reloading(i<10):
     sleep(0.2)
     i += 1
 """
-        stdout, stderr = run_and_update_source(
+        stdout, _ = run_and_update_source(
             init_src=code,
             updated_src=code.replace("'f'", "'F'").
             replace("'g'", "'G'"),

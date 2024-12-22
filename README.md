@@ -59,6 +59,17 @@ def function():
     pass
 ```
 
+It is also possible to mark a function for reload after defining it:
+```python
+from reloading import reloading
+
+def function():
+    # This function will be reloaded before each function call
+    pass
+
+function = reloading(function)
+```
+
 ## Additional Options
 
 To iterate forever in a `for` loop you can omit the argument:

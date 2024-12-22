@@ -491,9 +491,10 @@ def strip_reloading_decorator(function_with_decorator: ast.FunctionDef):
     decorator_names = [get_decorator_name_or_none(decorator)
                        for decorator
                        in fwod.decorator_list]
-    # Find index of "reloading" decorator
-    reloading_index = decorator_names.index("reloading")
-    fwod.decorator_list = fwod.decorator_list[reloading_index + 1:]
+    if "reloading" in decorator_names:
+        # Find index of "reloading" decorator
+        reloading_index = decorator_names.index("reloading")
+        fwod.decorator_list = fwod.decorator_list[reloading_index + 1:]
     function_without_decorator = fwod
     return function_without_decorator
 
@@ -511,6 +512,7 @@ def isolate_function_def(function_frame_info: inspect.FrameInfo,
     class_name = qualname.split(".")[length - 2] if length > 1 else None
 
     candidates = []
+    weak_candidates = []
     for node in ast.walk(reloaded_file_ast):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             for subnode in node.body:
@@ -527,6 +529,24 @@ def isolate_function_def(function_frame_info: inspect.FrameInfo,
                 for decorator in node.decorator_list
             ]:
                 candidates.append(node)
+            else:
+                # The function was not decorated... Hmm
+                # This could be because the function was wrapped. Example:
+                #  def f(x):
+                #    return x
+                #  f = reloading(f)
+                # If we only find ONE function which matches by name,
+                # then we return it. If we're confused though, due to
+                # multiple definitions of function with the same
+                # name then we raise and exception. Example:
+                #  def f(x):
+                #    return x
+                #  def g(x):
+                #    def f(x):
+                #      return x
+                #    return f(x)
+                #  f = reloading(f)
+                weak_candidates.append(node)
     # Select the candidate node which is closest to function_frame_info
     if len(candidates):
         def sorting_function(candidate):
@@ -535,6 +555,19 @@ def isolate_function_def(function_frame_info: inspect.FrameInfo,
         function_node = strip_reloading_decorator(candidate)
         function_node_ast = ast.Module([function_node], type_ignores=[])
         return function_node_ast
+    elif len(weak_candidates) == 1:
+        candidate = weak_candidates[0]
+        function_node = strip_reloading_decorator(candidate)
+        function_node_ast = ast.Module([function_node], type_ignores=[])
+        return function_node_ast
+    elif len(weak_candidates) > 1:
+        raise ReloadingException(
+            f'The file "{function_frame_info.filename}" contains '
+            f'{len(weak_candidates)} definitions of functions with the name '
+            f'"{function_name}" so it is not possible to figure out which '
+            'one to reload. This can be resolved by decorating the function '
+            'instead of wrapping it.'
+        )
     else:
         raise ReloadingException(
             f'Unable to reload function "{function_name}" '
