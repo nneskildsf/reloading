@@ -224,6 +224,7 @@ class ForLoop:
 
 def get_loop_object(loop_frame_info: inspect.FrameInfo,
                     reloaded_file_ast: ast.Module,
+                    filename: str,
                     loop_id: Union[None, str]) -> Union[WhileLoop, ForLoop]:
     """
     Traverse AST for the entire reloaded file in a search for the
@@ -252,7 +253,7 @@ def get_loop_object(loop_frame_info: inspect.FrameInfo,
         raise ReloadingException(
             f'Unable to reload loop initially defined at line '
             f'{loop_frame_info.lineno} '
-            f'in file "{loop_frame_info.filename}". '
+            f'in file "{filename}". '
             'The loop might have been removed.'
         )
 
@@ -288,7 +289,7 @@ def get_loop_code(loop_frame_info: inspect.FrameInfo,
         reloaded_file_ast: ast.Module = parse_file_until_successful(filename)
         try:
             return get_loop_object(
-                loop_frame_info, reloaded_file_ast, loop_id=loop_id
+                loop_frame_info, reloaded_file_ast, filename, loop_id=loop_id
             )
         except (LookupError, ReloadingException):
             handle_exception(filename)
@@ -499,101 +500,132 @@ def strip_reloading_decorator(function_with_decorator: ast.FunctionDef):
     return function_without_decorator
 
 
-def isolate_function_def(function_frame_info: inspect.FrameInfo,
-                         function: Callable,
-                         reloaded_file_ast: ast.Module) -> ast.Module:
+# Source: https://stackoverflow.com/questions/34570992/
+class Parentage(ast.NodeTransformer):
+    # current parent (module)
+    parent = None
+
+    def visit(self, node: Any):
+        # set parent attribute for this node
+        node.parent = self.parent
+        # This node becomes the new parent
+        self.parent = node
+        # Do any work required by super class
+        node = super().visit(node)
+        # If we have a valid node (ie. node not being removed)
+        if isinstance(node, ast.AST):
+            # update the parent, since this may have been transformed
+            # to a different node by super
+            self.parent = getattr(node, "parent")
+        return node
+
+
+def get_node_id(node) -> str:
+    path = ""
+    while node.parent:
+        path = node.__class__.__name__+("." if path else "")+path
+        node = node.parent
+    return path
+
+
+class Function:
+    def __init__(self,
+                 function_name: str,
+                 function_frame_info: inspect.FrameInfo,
+                 ast_module: ast.Module,
+                 id: str):
+        self.ast_module = ast_module
+        self.id = id
+        self.name = function_name
+        caller_locals = function_frame_info.frame.f_locals
+        caller_globals = function_frame_info.frame.f_globals
+        # Copy locals to avoid exec overwriting the decorated function with
+        # the new undecorated function.
+        caller_locals_copy = caller_locals.copy()
+        compiled_body = compile(ast_module, filename="", mode="exec")
+        exec(compiled_body, caller_globals, caller_locals_copy)
+        self.function = caller_locals_copy[function_name]
+
+
+def get_function_object(function_frame_info: inspect.FrameInfo,
+                        function: Callable,
+                        reloaded_file_ast: ast.Module,
+                        filename: str,
+                        function_id: Union[None, str] = None) -> Function:
     """
-    Traverse AST for the entire reloaded file in a search for the
+    Traverse AST foar the entire reloaded file in a search for the
     function (minus the reloading decorator) which is reloaded.
     """
     qualname = function.__qualname__
-    length = len(qualname.split("."))
     function_name = qualname.split(".")[-1]
-    class_name = qualname.split(".")[length - 2] if length > 1 else None
 
-    candidates = []
-    weak_candidates = []
+    candidate = None
+    Parentage().visit(reloaded_file_ast)
+    relevant_nodes = []
     for node in ast.walk(reloaded_file_ast):
-        if isinstance(node, ast.ClassDef) and node.name == class_name:
-            for subnode in node.body:
-                if (isinstance(subnode, ast.FunctionDef) and
-                   subnode.name == function_name):
-                    if "reloading" in [
-                        get_decorator_name_or_none(decorator)
-                        for decorator in subnode.decorator_list
-                    ]:
-                        candidates.append(subnode)
-        if isinstance(node, ast.FunctionDef) and node.name == function_name:
-            if "reloading" in [
-                get_decorator_name_or_none(decorator)
-                for decorator in node.decorator_list
-            ]:
-                candidates.append(node)
-            else:
-                # The function was not decorated... Hmm
-                # This could be because the function was wrapped. Example:
-                #  def f(x):
-                #    return x
-                #  f = reloading(f)
-                # If we only find ONE function which matches by name,
-                # then we return it. If we're confused though, due to
-                # multiple definitions of function with the same
-                # name then we raise and exception. Example:
-                #  def f(x):
-                #    return x
-                #  def g(x):
-                #    def f(x):
-                #      return x
-                #    return f(x)
-                #  f = reloading(f)
-                weak_candidates.append(node)
-    # Select the candidate node which is closest to function_frame_info
-    if len(candidates):
-        def sorting_function(candidate):
-            return abs(candidate.lineno - function_frame_info.lineno)
-        candidate = min(candidates, key=sorting_function)
-        function_node = strip_reloading_decorator(candidate)
-        function_node_ast = ast.Module([function_node], type_ignores=[])
-        return function_node_ast
-    elif len(weak_candidates) == 1:
-        candidate = weak_candidates[0]
-        function_node = strip_reloading_decorator(candidate)
-        function_node_ast = ast.Module([function_node], type_ignores=[])
-        return function_node_ast
-    elif len(weak_candidates) > 1:
+        if (isinstance(node, ast.FunctionDef) and
+           node.name == function.__name__):
+            relevant_nodes.append(node)
+            if function_id is None:
+                # If we don't have an ID, then it is because this is the
+                # first time we get the function object. In this case, we
+                # can assume that the function object and the AST are in sync.
+                # That is, if the line numbers match then it's all good.
+                if node.lineno == function.__code__.co_firstlineno:
+                    candidate = node
+                    break
+                # Okay, so the line numbers don't match exactly. This could be
+                # because of decorators. Check if the function is decorated
+                # for reloading and that the line numbers are plausible.
+                node_l = node.lineno
+                function_l = function.__code__.co_firstlineno
+                if all(["reloading" in [get_decorator_name_or_none(decorator)
+                       for decorator in node.decorator_list],
+                       node_l > function_l,
+                       node_l - function_l <= len(node.decorator_list)]):
+                    candidate = node
+                    break
+            # If the node IDs match then its a sure thing.
+            if get_node_id(node) == function_id:
+                candidate = node
+                break
+    if candidate is None and len(relevant_nodes) == 1:
+        candidate = relevant_nodes[0]
+    elif candidate is None and len(relevant_nodes) > 1:
         raise ReloadingException(
-            f'The file "{function_frame_info.filename}" contains '
-            f'{len(weak_candidates)} definitions of functions with the name '
-            f'"{function_name}" so it is not possible to figure out which '
-            'one to reload. This can be resolved by decorating the function '
-            'instead of wrapping it.'
-        )
+            f'File "{filename}" contains '
+            f'{len(relevant_nodes)} definitions of function '
+            f'"{function_name}" and it is not possible '
+            f'to determine which to reload.')
+    # Select the candidate node which is closest to function_frame_info
+    if candidate:
+        function_id = get_node_id(candidate)
+        function_node = strip_reloading_decorator(candidate)
+        function_node_ast = ast.Module([function_node], type_ignores=[])
+        return Function(function.__name__,
+                        function_frame_info,
+                        function_node_ast,
+                        function_id)
     else:
         raise ReloadingException(
             f'Unable to reload function "{function_name}" '
-            f'in file "{function_frame_info.filename}". '
+            f'in file "{filename}". '
             'The function might have been renamed or the '
             'decorator might have been removed.'
         )
 
 
-def get_reloaded_function(caller_globals: Dict[str, Any],
-                          caller_locals: Dict[str, Any],
-                          function_frame_info: inspect.FrameInfo,
+def get_reloaded_function(function_frame_info: inspect.FrameInfo,
                           function: Callable,
-                          filename: str) -> Callable:
+                          filename: str,
+                          function_id: Union[None, str]) -> Function:
     reloaded_file_ast: ast.Module = parse_file_until_successful(
                                         filename)
-    function_ast = isolate_function_def(function_frame_info,
-                                        function,
-                                        reloaded_file_ast)
-    # Copy locals to avoid exec overwriting the decorated function with the new
-    # undecorated function.
-    caller_locals_copy = caller_locals.copy()
-    compiled_body = compile(function_ast, filename="", mode="exec")
-    exec(compiled_body, caller_globals, caller_locals_copy)
-    function = caller_locals_copy[function.__name__]
-    return function
+    return get_function_object(function_frame_info,
+                               function,
+                               reloaded_file_ast,
+                               filename,
+                               function_id)
 
 
 def _reloading_function(function: Callable) -> Callable:
@@ -611,35 +643,32 @@ def _reloading_function(function: Callable) -> Callable:
     if ".ipynb" in function_frame_info.frame.f_globals.get("__session__", ""):
         filename = str(function_frame_info.frame.f_globals.get("__session__"))
 
-    caller_globals = function_frame_info.frame.f_globals
     caller_locals = function_frame_info.frame.f_locals
 
     file_stat: int = os.stat(filename).st_mtime_ns
-    rfunction = get_reloaded_function(caller_globals,
-                                      caller_locals,
-                                      function_frame_info,
-                                      function,
-                                      filename)
+    function_object = get_reloaded_function(function_frame_info,
+                                            function,
+                                            filename,
+                                            function_id=None)
     i: int = 0
 
     def wrapped(*args, **kwargs):
-        nonlocal file_stat, function, rfunction, i
+        nonlocal file_stat, function, function_object, i
         # Reload code if possibly modified
         file_stat_: int = os.stat(filename).st_mtime_ns
         if file_stat != file_stat_:
-            log.info(f'Function "{function.__name__}" at line '
-                     f'{function_frame_info.lineno} '
+            log.info(f'Function "{function.__name__}" initially defined at '
+                     f'line {function_frame_info.lineno} '
                      f'of file "{filename}" has been reloaded.')
-            rfunction = get_reloaded_function(caller_globals,
-                                              caller_locals,
-                                              function_frame_info,
-                                              function,
-                                              filename)
+            function_object = get_reloaded_function(function_frame_info,
+                                                    function,
+                                                    filename,
+                                                    function_object.id)
             file_stat = file_stat_
         i += 1
         while True:
             try:
-                result = rfunction(*args, **kwargs)
+                result = function_object.function(*args, **kwargs)
                 return result
             except Exception:
                 handle_exception(filename)

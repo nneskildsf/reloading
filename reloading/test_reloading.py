@@ -212,33 +212,34 @@ class TestReloadingFunctionWithoutChanges(unittest.TestCase):
     def test_function_return_value(self):
         @reloading
         def function():
-            return "result"
+            return "1"
 
-        self.assertEqual(function(), "result")
+        self.assertEqual(function(), "1")
 
     def test_function_return_value_wrapped(self):
         def function():
-            return "result"
+            return "2"
 
         function = reloading(function)
-        self.assertEqual(function(), "result")
+        self.assertEqual(function(), "2")
 
     def test_nested_function(self):
         def outer():
             @reloading
             def inner():
-                return "result"
+                return "3"
             return inner()
 
-        self.assertEqual(outer(), "result")
+        self.assertEqual(outer(), "3")
 
     def test_function_signature_is_preserved(self):
         @reloading
         def some_func(a, b, c):
-            return "result"
+            return "4"
 
         import inspect
         self.assertEqual(str(inspect.signature(some_func)), "(a, b, c)")
+        self.assertEqual(some_func(1, 2, 3), "4")
 
     def test_decorated_function(self):
         def decorator(f):
@@ -249,9 +250,9 @@ class TestReloadingFunctionWithoutChanges(unittest.TestCase):
         @decorator
         @reloading
         def f():
-            return 2
+            return 6
 
-        self.assertEqual(f(), "<2>")
+        self.assertEqual(f(), "<6>")
 
 
 class TestReloadingForLoopWithChanges(unittest.TestCase):
