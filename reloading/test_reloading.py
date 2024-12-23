@@ -9,6 +9,7 @@ from reloading import reloading
 
 SRC_FILE_NAME = "temporary_testing_file.py"
 
+
 def run_and_update_source(init_src, updated_src=None, update_after=0.5):
     """Runs init_src in a subprocess and updates source to updated_src after
     update_after seconds. Returns the standard output of the subprocess and
@@ -122,6 +123,7 @@ def iterator():
         if os.path.isfile("temporary_library.py"):
             os.remove("temporary_library.py")
 
+
 class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
     def test_no_argument(self):
         i = 0
@@ -214,6 +216,7 @@ def condition(x):
             self.assertEqual(i, 10)
         if os.path.isfile("temporary_library.py"):
             os.remove("temporary_library.py")
+
 
 class TestReloadingFunctionWithoutChanges(unittest.TestCase):
     def test_empty_function_definition(self):
