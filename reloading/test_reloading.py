@@ -15,7 +15,7 @@ def run_and_update_source(init_src, updated_src=None, update_after=0.5):
     update_after seconds. Returns the standard output of the subprocess and
     whether the subprocess produced an uncaught exception.
     """
-    with open(SRC_FILE_NAME, "w") as f:
+    with open(SRC_FILE_NAME, "w", encoding="utf-8") as f:
         f.write(init_src)
 
     cmd = ["python", SRC_FILE_NAME]
@@ -24,7 +24,7 @@ def run_and_update_source(init_src, updated_src=None, update_after=0.5):
                           stderr=subprocess.PIPE) as proc:
         if updated_src is not None:
             time.sleep(update_after)
-            with open(SRC_FILE_NAME, "w") as f:
+            with open(SRC_FILE_NAME, "w", encoding="utf-8") as f:
                 f.write(updated_src)
                 f.flush()
 
