@@ -47,5 +47,4 @@ development = [
 include = ["reloading"]
 exclude = [
   "**/__pycache__",
-  "examples",
 ]

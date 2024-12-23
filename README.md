@@ -72,6 +72,7 @@ function = reloading(function)
 
 ## Additional Options
 
+### Iterate Forever in For Loop
 To iterate forever in a `for` loop you can omit the argument:
 ```python
 from reloading import reloading
@@ -79,6 +80,31 @@ from reloading import reloading
 for _ in reloading():
     # This code will loop forever and reload from source before each iteration
     pass
+```
+
+### Code Changes Logged
+On Python 3.9 and newer, a diff is logged when the source code is updated.
+Consider the following code as an example.
+```python
+from reloading import reloading
+from time import sleep
+import logging
+
+log = logging.getLogger("reloading")
+log.setLevel(logging.DEBUG)
+
+for i in reloading(range(100)):
+    print(i)
+    sleep(1.0)
+```
+After some time the code is edited. `i = 2*i` is added before `print(i)`,
+resulting in the following log output:
+```console
+INFO:reloading:For loop at line 10 of file "../example.py" has been reloaded.
+DEBUG:reloading:Code changes:
++i = i * 2
+ print(i)
+ sleep(1.0)
 ```
 
 ## Known Issus
@@ -95,14 +121,19 @@ def function():
 
 function() # Prints 0. Not 10 as expected. Fixed in Python 3.13.
 ```
-A warning is emitted when the issue arises: `WARNING:reloading:Variable(s) "i" in reloaded loop were not exported to the scope which called the reloaded loop at line...`.
+A warning is emitted when the issue arises:
+```console
+WARNING:reloading:Variable(s) "i" in reloaded loop were not exported to the scope which called the reloaded loop at line...
+```
 
 ## Lint, Type Check and Testing
 
 Run:
 ```console
 $ pip install -e ".[development]"
+$ ruff check .
 $ flake8
 $ pyright
+$ mypy .
 $ python -m unittest
 ```

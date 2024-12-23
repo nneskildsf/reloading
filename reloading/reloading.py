@@ -13,9 +13,27 @@ from typing import (Optional,
                     overload)
 from itertools import chain
 import logging
+import difflib
 
 log = logging.getLogger("reloading")
 logging.basicConfig(level=logging.INFO)
+
+
+def get_diff_text(ast_before: ast.Module, ast_after: ast.Module):
+    """
+    Calculate difference between two versions of reloaded code.
+    """
+    # Unparse was introduced in Python 3.9.
+    if sys.version_info.major >= 3 and sys.version_info.minor >= 9:
+        code_before = ast.unparse(ast_before)
+        code_after = ast.unparse(ast_after)
+        diff = difflib.unified_diff(code_before.splitlines(),
+                                    code_after.splitlines(),
+                                    lineterm="")
+        # Omit first three lines because they contain superfluous information.
+        return "\n".join(["Code changes:"]+list(diff)[3:])
+    else:
+        return "Cannot compute code changes. Requires Python > 3.9."
 
 
 class ReloadingException(Exception):
@@ -344,10 +362,13 @@ def execute_for_loop(seq: Iterable,
             if i > 0:
                 log.info(f'For loop at line {loop_frame_info.lineno} of file '
                          f'"{filename}" has been reloaded.')
+            ast_before = for_loop.ast
             for_loop = get_loop_code(
                 loop_frame_info, loop_id=for_loop.id, filename=filename
             )
             assert isinstance(for_loop, ForLoop)
+            ast_after = for_loop.ast
+            log.debug(get_diff_text(ast_before, ast_after))
             file_stat = file_stat_
             # Make up a name for a variable which is not already present in
             # the global or local namespace.
@@ -400,9 +421,12 @@ def execute_while_loop(loop_frame_info: inspect.FrameInfo, filename: str):
         if file_stat != file_stat_:
             log.info(f'While loop at line {loop_frame_info.lineno} of file '
                      f'"{filename}" has been reloaded.')
+            ast_before = while_loop.ast
             while_loop = get_loop_code(
                 loop_frame_info, loop_id=while_loop.id, filename=filename
             )
+            ast_after = while_loop.ast
+            log.debug(get_diff_text(ast_before, ast_after))
             file_stat = file_stat_
         try:
             exec(while_loop.compiled_body, caller_globals, caller_locals)
@@ -534,7 +558,7 @@ class Function:
                  function_frame_info: inspect.FrameInfo,
                  ast_module: ast.Module,
                  id: str):
-        self.ast_module = ast_module
+        self.ast = ast_module
         self.id = id
         self.name = function_name
         caller_locals = function_frame_info.frame.f_locals
@@ -660,10 +684,13 @@ def _reloading_function(function: Callable) -> Callable:
             log.info(f'Function "{function.__name__}" initially defined at '
                      f'line {function_frame_info.lineno} '
                      f'of file "{filename}" has been reloaded.')
+            ast_before = function_object.ast
             function_object = get_reloaded_function(function_frame_info,
                                                     function,
                                                     filename,
                                                     function_object.id)
+            ast_after = function_object.ast
+            log.debug(get_diff_text(ast_before, ast_after))
             file_stat = file_stat_
         i += 1
         while True:
