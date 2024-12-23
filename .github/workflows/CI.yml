@@ -43,7 +43,11 @@ jobs:
         run: python -m pip install ".[development]"
       - name: Lint with flake8
         run: flake8
+      - name: Lint with ruff
+        run: ruff check .
       - name: Type check with pyright
         run: pyright
+      - name: Type check with mypy
+        run: mypy .
       - name: Test with unittest
         run: python -m unittest
