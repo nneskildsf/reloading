@@ -111,7 +111,7 @@ class TestReloadingForLoopWithoutChanges(unittest.TestCase):
 def iterator():
     return range(10)
 """)
-        import temporary_library # type: ignore
+        import temporary_library  # type: ignore
         importlib.reload(temporary_library)
 
         i = 0
@@ -205,7 +205,7 @@ class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
 def condition(x):
     return x < 10
 """)
-        import temporary_library # type: ignore
+        import temporary_library  # type: ignore
         importlib.reload(temporary_library)
 
         i = 0
@@ -297,7 +297,7 @@ class TestReloadingFunctionWithoutChanges(unittest.TestCase):
 def function_not_marked(x):
     return x
 """)
-        import temporary_library # type: ignore
+        import temporary_library  # type: ignore
         importlib.reload(temporary_library)
         self.assertEqual(temporary_library.function_not_marked("7"), "7")
         g = reloading(temporary_library.function_not_marked)
@@ -314,7 +314,7 @@ from reloading import reloading
 def function_marked(x):
     return x
 """)
-        import temporary_library # type: ignore
+        import temporary_library  # type: ignore
         importlib.reload(temporary_library)
         self.assertEqual(temporary_library.function_marked("9"), "9")
         if os.path.isfile("temporary_library.py"):
