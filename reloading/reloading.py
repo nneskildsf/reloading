@@ -635,9 +635,9 @@ def _reloading_function(function: Callable) -> Callable:
     assert stack[0].function == "_reloading_function"
     # The second element is the caller of the first, i.e. reloading
     assert stack[1].function == "reloading"
-    # The third element is the loop which called reloading.
+    # The third element is the function which called reloading
     function_frame_info: inspect.FrameInfo = stack[2]
-    filename: str = function_frame_info.filename
+    filename: str = function.__code__.co_filename
     # If we are running in Jupyter Notebook then the filename
     # of the current notebook is stored in the __session__ variable.
     if ".ipynb" in function_frame_info.frame.f_globals.get("__session__", ""):

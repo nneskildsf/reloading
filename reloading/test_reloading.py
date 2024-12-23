@@ -3,11 +3,11 @@ import sys
 import os
 import subprocess
 import time
+import importlib
 
 from reloading import reloading
 
 SRC_FILE_NAME = "temporary_testing_file.py"
-
 
 def run_and_update_source(init_src, updated_src=None, update_after=0.5):
     """Runs init_src in a subprocess and updates source to updated_src after
@@ -104,6 +104,23 @@ class TestReloadingForLoopWithoutChanges(unittest.TestCase):
         self.assertEqual(i, 10)
         self.assertEqual(j, 5)
 
+    def test_iterator_in_library(self):
+        with open("temporary_library.py", "w") as f:
+            f.write("""
+def iterator():
+    return range(10)
+""")
+        import temporary_library
+        importlib.reload(temporary_library)
+
+        i = 0
+        for i in reloading(temporary_library.iterator()):
+            pass
+
+        if sys.version_info.major >= 3 and sys.version_info.minor >= 13:
+            self.assertEqual(i, 9)
+        if os.path.isfile("temporary_library.py"):
+            os.remove("temporary_library.py")
 
 class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
     def test_no_argument(self):
@@ -180,6 +197,23 @@ class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
         while reloading.reloading(i < 10):
             i += 1
 
+    def test_condition_in_library(self):
+        with open("temporary_library.py", "w") as f:
+            f.write("""
+def condition(x):
+    return x < 10
+""")
+        import temporary_library
+        importlib.reload(temporary_library)
+
+        i = 0
+        while reloading(temporary_library.condition(i)):
+            i += 1
+
+        if sys.version_info.major >= 3 and sys.version_info.minor >= 13:
+            self.assertEqual(i, 10)
+        if os.path.isfile("temporary_library.py"):
+            os.remove("temporary_library.py")
 
 class TestReloadingFunctionWithoutChanges(unittest.TestCase):
     def test_empty_function_definition(self):
@@ -253,6 +287,35 @@ class TestReloadingFunctionWithoutChanges(unittest.TestCase):
             return 6
 
         self.assertEqual(f(), "<6>")
+
+    def test_function_in_library(self):
+        with open("temporary_library.py", "w") as f:
+            f.write("""
+def function_not_marked(x):
+    return x
+""")
+        import temporary_library
+        importlib.reload(temporary_library)
+        self.assertEqual(temporary_library.function_not_marked("7"), "7")
+        g = reloading(temporary_library.function_not_marked)
+        self.assertEqual(g("8"), "8")
+        if os.path.isfile("temporary_library.py"):
+            os.remove("temporary_library.py")
+
+    def test_reloading_function_in_library(self):
+        with open("temporary_library.py", "w") as f:
+            f.write("""
+from reloading import reloading
+
+@reloading
+def function_marked(x):
+    return x
+""")
+        import temporary_library
+        importlib.reload(temporary_library)
+        self.assertEqual(temporary_library.function_marked("9"), "9")
+        if os.path.isfile("temporary_library.py"):
+            os.remove("temporary_library.py")
 
 
 class TestReloadingForLoopWithChanges(unittest.TestCase):
