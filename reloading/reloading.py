@@ -24,7 +24,9 @@ def get_diff_text(ast_before: ast.Module, ast_after: ast.Module):
     Calculate difference between two versions of reloaded code.
     """
     # Unparse was introduced in Python 3.9.
-    if sys.version_info.major >= 3 and sys.version_info.minor >= 9:
+    if all([sys.version_info.major >= 3,
+            sys.version_info.minor >= 9,
+            hasattr(ast, "unparse")]):
         code_before = ast.unparse(ast_before)
         code_after = ast.unparse(ast_after)
         diff = difflib.unified_diff(code_before.splitlines(),
