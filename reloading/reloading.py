@@ -573,8 +573,12 @@ class Function:
         # Copy locals to avoid exec overwriting the decorated function with
         # the new undecorated function.
         caller_locals_copy = caller_locals.copy()
+        caller_globals_copy = caller_globals.copy()
+        # Variables that are local to the calling scope
+        # are global to the function.
+        caller_globals_copy.update(caller_locals_copy)
         compiled_body = compile(ast_module, filename="", mode="exec")
-        exec(compiled_body, caller_globals, caller_locals_copy)
+        exec(compiled_body, caller_globals_copy, caller_locals_copy)
         self.function = caller_locals_copy[function_name]
 
 
@@ -666,8 +670,15 @@ def _reloading_function(function: Callable) -> Callable:
     assert stack[0].function == "_reloading_function"
     # The second element is the caller of the first, i.e. reloading
     assert stack[1].function == "reloading"
-    # The third element is the function which called reloading
+    # The third element or later is the function which called reloading
     function_frame_info: inspect.FrameInfo = stack[2]
+    for frame_info in stack[2:]:
+        names_global = set(frame_info.frame.f_globals.keys())
+        names_local = set(frame_info.frame.f_locals.keys())
+        variables = names_local | names_global
+        if all([function.__name__ in variables,
+                frame_info.filename == function.__code__.co_filename]):
+            function_frame_info = frame_info
     filename: str = function.__code__.co_filename
     # If we are running in Jupyter Notebook then the filename
     # of the current notebook is stored in the __session__ variable.
@@ -675,7 +686,6 @@ def _reloading_function(function: Callable) -> Callable:
         filename = str(function_frame_info.frame.f_globals.get("__session__"))
 
     caller_locals = function_frame_info.frame.f_locals
-
     file_stat: int = os.stat(filename).st_mtime_ns
     function_object = get_reloaded_function(function_frame_info,
                                             function,

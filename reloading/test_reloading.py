@@ -320,6 +320,39 @@ def function_marked(x):
         if os.path.isfile("temporary_library.py"):
             os.remove("temporary_library.py")
 
+    def test_deep_call_stack_make_locals_globals(self):
+        a = 2
+
+        def f(x):
+            b = 2
+            return x*a*b
+
+        def g():
+            return reloading(f)
+
+        function = g()
+        result = function("9")
+
+        self.assertEqual(result, "9999")
+
+    def test_deep_call_stack_prioritise_locals(self):
+        a = 2
+        # Now flake8 does not complain about unused a
+        print(a)
+
+        def f(x):
+            a = 3
+            b = 2
+            return x*a*b
+
+        def g():
+            return reloading(f)
+
+        function = g()
+        result = function("9")
+
+        self.assertEqual(result, "999999")
+
 
 class TestReloadingForLoopWithChanges(unittest.TestCase):
     def test_changing_source_loop(self):
