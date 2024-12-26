@@ -46,7 +46,7 @@ def run_and_update_source(init_src, updated_src=None, update_after=0.5):
 class TestReloadingForLoopWithoutChanges(unittest.TestCase):
     def test_no_argument(self):
         i = 0
-        for _ in reloading():
+        for _ in reloading():  # type: ignore
             i += 1
             if i > 10:
                 break
@@ -347,6 +347,121 @@ def function_marked(x):
 
         def g():
             return reloading(f)
+
+        function = g()
+        result = function("9")
+
+        self.assertEqual(result, "999999")
+
+
+class TestReloadingFunctionDecoratorArgumentsWithoutChanges(unittest.TestCase):
+    def test_empty_function_definition(self):
+        @reloading(interactive_exception=False)
+        def function1():
+            pass
+
+        @reloading()
+        def function2():
+            pass
+
+    def test_empty_function_run(self):
+        @reloading(interactive_exception=False)
+        def function():
+            pass
+
+        function()
+
+    def test_module_import(self):
+        import reloading
+
+        @reloading.reloading(interactive_exception=False)
+        def function():
+            pass
+
+        function()
+
+    def test_function_return_value(self):
+        @reloading(interactive_exception=False)
+        def function():
+            return "1"
+
+        self.assertEqual(function(), "1")
+
+    def test_nested_function(self):
+        def outer():
+            @reloading(interactive_exception=False)
+            def inner():
+                return "3"
+            return inner()
+
+        self.assertEqual(outer(), "3")
+
+    def test_function_signature_is_preserved(self):
+        @reloading(interactive_exception=False)
+        def some_func(a, b, c):
+            return "4"
+
+        import inspect
+        self.assertEqual(str(inspect.signature(some_func)), "(a, b, c)")
+        self.assertEqual(some_func(1, 2, 3), "4")
+
+    def test_decorated_function(self):
+        def decorator(f):
+            def wrap():
+                return "<"+str(f())+">"
+            return wrap
+
+        @decorator
+        @reloading(interactive_exception=False)
+        def f():
+            return 6
+
+        self.assertEqual(f(), "<6>")
+
+    def test_reloading_function_in_library(self):
+        with open("temporary_library.py", "w") as f:
+            f.write("""
+from reloading import reloading
+
+@reloading(interactive_exception=False)
+def function_marked(x):
+    return x
+""")
+        import temporary_library  # type: ignore
+        importlib.reload(temporary_library)
+        self.assertEqual(temporary_library.function_marked("9"), "9")
+        if os.path.isfile("temporary_library.py"):
+            os.remove("temporary_library.py")
+
+    def test_deep_call_stack_make_locals_globals(self):
+        a = 2
+
+        @reloading(interactive_exception=False)
+        def f(x):
+            b = 2
+            return x*a*b
+
+        def g():
+            return f
+
+        function = g()
+        result = function("9")
+
+        self.assertEqual(result, "9999")
+
+    def test_deep_call_stack_prioritise_locals(self):
+        a = 2
+        # Now flake8 does not complain about unused a
+        print(a)
+
+        @reloading(interactive_exception=False)
+        def f(x):
+            a = 3
+            b = 2
+            return x*a*b
+
+        def g():
+            return f
 
         function = g()
         result = function("9")

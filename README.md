@@ -20,7 +20,7 @@ This fork of reloading supports Python 3.6+.
 - Multiple reloading functions and loops in one file
 - Reloaded functions preserve their original call signature
 - Only reload source code when changed for faster performance
-- Comprehensive exceptions and logging to let you know of errors
+- Comprehensive exceptions and logging
 - Exports locals of reloaded loops to parent locals (Python 3.13 and newer)
 
 ## Usage
@@ -71,6 +71,28 @@ function = reloading(function)
 ```
 
 ## Additional Options
+
+### Interactive Exception Handling
+Exceptions are handled interactively by default to avoid losing state.
+When an exception occurs you will be notified and have the opportunity
+to rectify the issue and continue. However, if reloading is
+used in a setting where exceptions are better handled in the application
+using reloading then it can be disabled by setting `interactive_exception`
+to `False`. Example:
+```python
+from reloading import reloading
+
+@reloading(interactive_exception=False)
+def reloading_function():
+    pass
+
+for i in reloading(range(10), interactive_exception=False):
+    pass
+
+j = 0
+while reloading(j<10, interactive_exception=False):
+    j += 1
+```
 
 ### Iterate Forever in For Loop
 To iterate forever in a `for` loop you can omit the argument:
