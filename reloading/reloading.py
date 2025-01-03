@@ -187,7 +187,7 @@ def load_file(filename: str) -> str:
     """
     src = ""
     while True:
-        with open(filename, "r") as f:
+        with open(filename, "r", encoding="utf-8") as f:
             if filename.endswith(".ipynb"):
                 import nbformat
                 # Read Jupyter Notebook v. 4
@@ -244,10 +244,10 @@ class WhileLoop:
                  ast_module: ast.Module,
                  test: ast.Call,
                  filename: str,
-                 id: str):
+                 node_id: str):
         self.ast: ast.Module = ast_module
         self.test: ast.Call = test
-        self.id: str = id
+        self.id: str = node_id
         # Replace "break" and "continue" with custom exceptions.
         # Otherwise SyntaxError is raised because these instructions
         # are called outside a loop.
@@ -277,7 +277,7 @@ class ForLoop:
                                             ast.Tuple,
                                             ast.List],
                  filename: str,
-                 id: str):
+                 node_id: str):
         self.ast: ast.Module = ast_module
         # Replace "break" and "continue" with custom exceptions.
         # Otherwise SyntaxError is raised because these instructions
@@ -292,7 +292,7 @@ class ForLoop:
                                         ast.List] = iteration_variables
         self.iteration_variables_str: str = format_iteration_variables(
                                             iteration_variables)
-        self.id: str = id
+        self.id: str = node_id
 
 
 def get_loop_object(loop_frame_info: inspect.FrameInfo,
@@ -392,7 +392,7 @@ def handle_exception(filename: str, interactive_exception):
     frame_summaries = traceback.extract_tb(sys.exc_info()[2])
     count = len(frame_summaries)
     # find the first occurrence of the module file name
-    for i, frame_summary in enumerate(frame_summaries):
+    for frame_summary in frame_summaries:
         if frame_summary.filename == filename:
             break
         count -= 1
@@ -647,9 +647,9 @@ class Function:
                  function_frame_info: inspect.FrameInfo,
                  ast_module: ast.Module,
                  filename: str,
-                 id: str):
+                 node_id: str):
         self.ast = ast_module
-        self.id = id
+        self.id = node_id
         self.name = function_name
         caller_locals = function_frame_info.frame.f_locals
         caller_globals = function_frame_info.frame.f_globals
