@@ -187,7 +187,7 @@ def load_file(filename: str) -> str:
     """
     src = ""
     while True:
-        with open(filename, "r", encoding="utf-8") as f:
+        with open(filename, "r") as f:
             if filename.endswith(".ipynb"):
                 import nbformat
                 # Read Jupyter Notebook v. 4
