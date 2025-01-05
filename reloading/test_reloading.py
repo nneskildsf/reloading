@@ -58,6 +58,10 @@ class TestReloadingForLoopWithoutChanges(unittest.TestCase):
         for _ in reloading(range(10)):
             pass
 
+    def test_range_pass_not_interactive(self):
+        for _ in reloading(range(10), interactive_exception=False):
+            pass
+
     def test_module_import(self):
         import reloading
         for _ in reloading.reloading(range(10)):
@@ -134,6 +138,11 @@ class TestReloadingWhileLoopWithoutChanges(unittest.TestCase):
 
         if sys.version_info.major >= 3 and sys.version_info.minor >= 13:
             self.assertEqual(i, 10)
+
+    def test_not_interactive(self):
+        i = 0
+        while reloading(i < 10, interactive_exception=False):
+            i += 1
 
     def test_false(self):
         i = 0
@@ -229,6 +238,12 @@ class TestReloadingFunctionWithoutChanges(unittest.TestCase):
             pass
 
         function = reloading(function)
+
+    def test_empty_function_wrapped_not_interactive(self):
+        def function():
+            pass
+
+        function = reloading(function, interactive_exception=False)
 
     def test_empty_function_run(self):
         @reloading

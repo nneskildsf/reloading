@@ -54,11 +54,30 @@ def reloading(fn_or_seq_or_bool: Iterable) -> Iterable: ...
 
 
 @overload
-def reloading(fn_or_seq_or_bool: None) -> Iterable: ...
+def reloading(fn_or_seq_or_bool: Iterable,
+              interactive_exception: bool) -> Iterable: ...
 
 
 @overload
 def reloading(fn_or_seq_or_bool: bool) -> Iterable: ...
+
+
+@overload
+def reloading(fn_or_seq_or_bool: bool,
+              interactive_exception: bool) -> Iterable: ...
+
+
+@overload
+def reloading(fn_or_seq_or_bool: Callable) -> Callable: ...
+
+
+@overload
+def reloading(fn_or_seq_or_bool: Callable,
+              interactive_exception: bool) -> Callable: ...
+
+
+@overload
+def reloading(fn_or_seq_or_bool: None) -> Iterable: ...
 
 
 @overload
@@ -67,10 +86,6 @@ def reloading(*, interactive_exception: bool) -> Callable: ...
 
 @overload
 def reloading() -> Callable: ...
-
-
-@overload
-def reloading(fn_or_seq_or_bool: Callable) -> Callable: ...
 
 
 def reloading(fn_or_seq_or_bool: Optional[
